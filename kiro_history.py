@@ -433,6 +433,9 @@ class KiroHistory(App):
         height: 1fr;
         padding: 0 1;
     }
+    #preview:focus {
+        border: solid $accent;
+    }
     #status-bar {
         dock: bottom;
         height: 1;
@@ -454,6 +457,7 @@ class KiroHistory(App):
 
     BINDINGS = [
         Binding("ctrl+r", "resume", "Resume session"),
+        Binding("ctrl+n", "new_session", "New session"),
         Binding("ctrl+y", "copy_conversation", "Copy to clipboard"),
         Binding("ctrl+f", "search_content", "Search in conversation"),
         Binding("escape", "clear_or_quit", "Clear / Quit"),
@@ -461,6 +465,12 @@ class KiroHistory(App):
         Binding("/", "focus_search", "Search"),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
+        Binding("right", "focus_preview", "Preview", show=False),
+        Binding("l", "focus_preview", "Preview", show=False),
+        Binding("left", "focus_list", "List", show=False),
+        Binding("h", "focus_list", "List", show=False),
+        Binding("m", "load_more", "More", show=False),
+        Binding("space", "load_more", "More", show=False),
     ]
 
     def __init__(self):
@@ -469,6 +479,10 @@ class KiroHistory(App):
         self.filtered_sessions = []
         self.selected_session = None
         self._viewer_search_query = ""
+        # Lazy loading state
+        self._preview_messages = []  # Messages loaded so far
+        self._preview_all_loaded = False  # Whether all messages are loaded
+        self._preview_batch_size = 30  # Messages per batch
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -482,11 +496,23 @@ class KiroHistory(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.all_sessions = get_sessions()
-        self.filtered_sessions = self.all_sessions
-        self._populate_list(self.filtered_sessions)
-        status = self.query_one("#status-bar", Static)
-        status.update(f" {len(self.all_sessions)} sessions | Ctrl+R resume | / search | ? help")
+        # Show loading indicator in the list area
+        list_view = self.query_one("#session-list", ListView)
+        list_view.append(ListItem(Static("Loading sessions...", classes="loading-hint")))
+        # Load sessions in background
+        self._load_sessions_async()
+
+    @work(thread=True)
+    def _load_sessions_async(self) -> None:
+        """Load sessions in background thread."""
+        sessions = get_sessions()
+        self.all_sessions = sessions
+        self.filtered_sessions = sessions
+        self.call_from_thread(self._populate_list, sessions)
+        self.call_from_thread(
+            self.query_one("#status-bar", Static).update,
+            f" {len(sessions)} sessions | Ctrl+R resume | / search | ? help"
+        )
 
     def _populate_list(self, sessions):
         list_view = self.query_one("#session-list", ListView)
@@ -499,6 +525,24 @@ class KiroHistory(App):
     @on(Input.Changed, "#search-input")
     def on_search_changed(self, event: Input.Changed) -> None:
         self._do_search(event.value)
+
+    def on_key(self, event) -> None:
+        """Handle key events for navigation."""
+        # Search input: down/j moves to session list
+        search_input = self.query_one("#search-input", Input)
+        if search_input.has_focus and event.key in ("down", "j"):
+            event.prevent_default()
+            event.stop()
+            self.query_one("#session-list", ListView).focus()
+            return
+
+        # Preview pane: left/h moves back to session list
+        preview = self.query_one("#preview", RichLog)
+        if preview.has_focus and event.key in ("left", "h"):
+            event.prevent_default()
+            event.stop()
+            self.query_one("#session-list", ListView).focus()
+            return
 
     @work(thread=True)
     def _do_search(self, query: str) -> None:
@@ -518,6 +562,9 @@ class KiroHistory(App):
     @on(ListView.Highlighted, "#session-list")
     def on_session_highlighted(self, event: ListView.Highlighted) -> None:
         if event.item is None:
+            return
+        # Skip non-session items (e.g., "Loading sessions..." placeholder)
+        if not isinstance(event.item, SessionItem):
             return
         session = event.item.session
         self.selected_session = session
@@ -550,29 +597,44 @@ class KiroHistory(App):
         self.call_from_thread(preview.write, Text("─" * 50))
         self.call_from_thread(preview.write, Text(""))
 
-        # Messages
-        messages = extract_messages(session)
-        if not messages:
+        # Lazy loading: extract only first batch initially
+        self._preview_messages = extract_messages(session, limit=self._preview_batch_size)
+        self._preview_all_loaded = len(self._preview_messages) < self._preview_batch_size
+
+        if not self._preview_messages:
             self.call_from_thread(preview.write, Text("(no conversation data)"))
             return
 
+        # Render first batch
+        self.call_from_thread(self._render_messages, self._preview_messages)
+
+        # Show "load more" hint if there might be more messages
+        total_msgs = session.get("msg_count", 0)
+        if not self._preview_all_loaded and total_msgs > len(self._preview_messages):
+            remaining = total_msgs - len(self._preview_messages)
+            self.call_from_thread(preview.write, Text.from_markup(
+                f"[dim]─── ~{remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
+            ))
+
+    def _render_messages(self, messages: list) -> None:
+        """Render a list of messages to preview."""
+        preview = self.query_one("#preview", RichLog)
         for msg in messages:
             role = msg["role"]
             txt = msg["text"]
             if role == "you":
-                label = Text.from_markup(f"[bold cyan][YOU]:[/bold cyan]")
+                label = Text.from_markup("[bold cyan][YOU]:[/bold cyan]")
             else:
-                label = Text.from_markup(f"[bold green][KIRO]:[/bold green]")
-            self.call_from_thread(preview.write, label)
-            # Try to render as markdown for assistant messages
+                label = Text.from_markup("[bold green][KIRO]:[/bold green]")
+            preview.write(label)
             if role == "kiro":
                 try:
-                    self.call_from_thread(preview.write, Markdown(txt))
+                    preview.write(Markdown(txt))
                 except Exception:
-                    self.call_from_thread(preview.write, Text(txt))
+                    preview.write(Text(txt))
             else:
-                self.call_from_thread(preview.write, Text(txt))
-            self.call_from_thread(preview.write, Text(""))
+                preview.write(Text(txt))
+            preview.write(Text(""))
 
     # --- Actions ---
 
@@ -584,6 +646,10 @@ class KiroHistory(App):
             self.notify(f"Directory not found: {cwd}", severity="error")
             return
         self.exit(result=("resume", self.selected_session))
+
+    def action_new_session(self) -> None:
+        """Start a new kiro-cli session in the current directory."""
+        self.exit(result=("new", None))
 
     def action_focus_search(self) -> None:
         self.query_one("#search-input", Input).focus()
@@ -601,6 +667,57 @@ class KiroHistory(App):
 
     def action_cursor_up(self) -> None:
         self.query_one("#session-list", ListView).action_cursor_up()
+
+    def action_focus_preview(self) -> None:
+        """Focus the preview pane for scrolling."""
+        self.query_one("#preview", RichLog).focus()
+
+    def action_focus_list(self) -> None:
+        """Focus back to the session list."""
+        self.query_one("#session-list", ListView).focus()
+
+    def action_load_more(self) -> None:
+        """Load more messages in preview (lazy loading)."""
+        if not self.selected_session:
+            return
+        if self._preview_all_loaded:
+            self.notify("All messages loaded", severity="information")
+            return
+        self._load_more_messages()
+
+    @work(thread=True)
+    def _load_more_messages(self) -> None:
+        """Load next batch of messages from the session file."""
+        session = self.selected_session
+        if not session:
+            return
+
+        # Calculate how many we need to skip
+        skip = len(self._preview_messages)
+
+        # Extract all messages (with no limit), then take the next batch
+        # This is needed because extract_messages doesn't support offset
+        all_msgs = extract_messages(session)
+        new_msgs = all_msgs[skip:skip + self._preview_batch_size]
+
+        if not new_msgs:
+            self._preview_all_loaded = True
+            self.call_from_thread(self.notify, "All messages loaded", severity="information")
+            return
+
+        self._preview_messages.extend(new_msgs)
+        self._preview_all_loaded = len(all_msgs) <= len(self._preview_messages)
+
+        # Render new messages
+        self.call_from_thread(self._render_messages, new_msgs)
+
+        # Show hint if more remain
+        remaining = len(all_msgs) - len(self._preview_messages)
+        if remaining > 0:
+            preview = self.query_one("#preview", RichLog)
+            self.call_from_thread(preview.write, Text.from_markup(
+                f"[dim]─── {remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
+            ))
 
     def action_search_content(self) -> None:
         self.query_one("#search-input", Input).focus()
@@ -653,10 +770,16 @@ def main():
         print(f"Directory: {cwd}\n")
         os.chdir(cwd)
         if sys.platform == "win32":
-            # os.execvp not supported on Windows — use subprocess
-            subprocess.run(["kiro-cli", "chat", "--resume"], cwd=cwd)
+            subprocess.run(["kiro-cli", "chat", "--resume", "--trust-all-tools"], cwd=cwd)
         else:
-            os.execvp("kiro-cli", ["kiro-cli", "chat", "--resume"])
+            os.execvp("kiro-cli", ["kiro-cli", "chat", "--resume", "--trust-all-tools"])
+
+    elif result and isinstance(result, tuple) and result[0] == "new":
+        print("\nStarting new kiro-cli session...\n")
+        if sys.platform == "win32":
+            subprocess.run(["kiro-cli", "chat", "--trust-all-tools"])
+        else:
+            os.execvp("kiro-cli", ["kiro-cli", "chat", "--trust-all-tools"])
 
 
 if __name__ == "__main__":
