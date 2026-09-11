@@ -9,11 +9,10 @@ Reads from three stores (all read-only, never modifies session data):
 
 import json
 import os
-import re
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from textual import on, work
@@ -21,7 +20,6 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Input, Static, ListView, ListItem, RichLog
-from textual.message import Message
 from rich.text import Text
 from rich.markdown import Markdown
 
@@ -31,7 +29,26 @@ from rich.markdown import Markdown
 # Paths — override with KIRO_DEMO_DIR env var for demo/recording
 _DEMO_DIR = os.environ.get("KIRO_DEMO_DIR", "")
 SESSIONS_DIR = Path(_DEMO_DIR) / "kiro" / "sessions" / "cli" if _DEMO_DIR else Path.home() / ".kiro" / "sessions" / "cli"
-SQLITE_DB = Path(_DEMO_DIR) / "kiro-cli" / "data.sqlite3" if _DEMO_DIR else Path.home() / "Library" / "Application Support" / "kiro-cli" / "data.sqlite3"
+
+def _sqlite_db_path() -> Path:
+    """Return the platform-appropriate SQLite DB path."""
+    if _DEMO_DIR:
+        return Path(_DEMO_DIR) / "kiro-cli" / "data.sqlite3"
+    if sys.platform == "win32":
+        local_appdata = os.environ.get("LOCALAPPDATA", "")
+        if local_appdata:
+            return Path(local_appdata) / "kiro-cli" / "data.sqlite3"
+        # Fallback: %USERPROFILE%\AppData\Local
+        return Path.home() / "AppData" / "Local" / "kiro-cli" / "data.sqlite3"
+    elif sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "kiro-cli" / "data.sqlite3"
+    else:
+        # Linux: XDG_DATA_HOME or ~/.local/share
+        xdg = os.environ.get("XDG_DATA_HOME", "")
+        base = Path(xdg) if xdg else Path.home() / ".local" / "share"
+        return base / "kiro-cli" / "data.sqlite3"
+
+SQLITE_DB = _sqlite_db_path()
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB guard
 
 
@@ -174,7 +191,7 @@ def _load_jsonl_sessions():
         try:
             if json_file.stat().st_size > MAX_FILE_SIZE:
                 continue
-            with open(json_file) as f:
+            with open(json_file, encoding="utf-8") as f:
                 meta = json.load(f)
             created = meta.get("created_at") or ""
             updated = meta.get("updated_at") or ""
@@ -183,7 +200,7 @@ def _load_jsonl_sessions():
             msg_count = 0
             jp = Path(jsonl_path)
             if jp.exists():
-                with open(jp) as jf:
+                with open(jp, encoding="utf-8") as jf:
                     for line in jf:
                         try:
                             ld = json.loads(line)
@@ -250,7 +267,7 @@ def extract_messages(session, limit=None):
         return [{"role": "system", "text": "(File too large to preview)"}]
 
     messages = []
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             try:
                 d = json.loads(line)
@@ -336,7 +353,7 @@ def search_sessions(query, sessions):
             if jsonl_path.stat().st_size > MAX_FILE_SIZE:
                 continue
             found = False
-            with open(jsonl_path) as f:
+            with open(jsonl_path, encoding="utf-8") as f:
                 for line in f:
                     try:
                         d = json.loads(line)
@@ -372,7 +389,8 @@ class SessionItem(ListItem):
         raw_ts = (self.session.get("updated_at") or "")[:10]
         try:
             dt = datetime.strptime(raw_ts, "%Y-%m-%d")
-            ts = dt.strftime("%-d %b %Y")
+            # %-d is Linux/macOS only; strip leading zero manually for cross-platform
+            ts = f"{dt.day} {dt.strftime('%b %Y')}"
         except (ValueError, TypeError):
             ts = raw_ts
         title = (self.session.get("title") or "(untitled)")[:60]
@@ -599,11 +617,27 @@ class KiroHistory(App):
             label = "[YOU]" if msg["role"] == "you" else "[KIRO]"
             text += f"{label}:\n{msg['text']}\n\n"
         try:
-            process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-            process.communicate(text.encode("utf-8"))
+            if sys.platform == "win32":
+                process = subprocess.Popen(["clip"], stdin=subprocess.PIPE)
+                process.communicate(text.encode("utf-16-le"))
+            elif sys.platform == "darwin":
+                process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+                process.communicate(text.encode("utf-8"))
+            else:
+                # Linux: try xclip then xsel
+                for cmd in (["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+                    try:
+                        process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                        process.communicate(text.encode("utf-8"))
+                        break
+                    except FileNotFoundError:
+                        continue
+                else:
+                    self.notify("No clipboard tool found (install xclip or xsel)", severity="error")
+                    return
             self.notify(f"Copied {len(messages)} messages to clipboard")
         except FileNotFoundError:
-            self.notify("pbcopy not found (macOS only)", severity="error")
+            self.notify("Clipboard tool not found", severity="error")
 
 
 # --- Entry Point ---
@@ -618,7 +652,11 @@ def main():
         print(f"\nResuming session: {session['title']}")
         print(f"Directory: {cwd}\n")
         os.chdir(cwd)
-        os.execvp("kiro-cli", ["kiro-cli", "chat", "--resume"])
+        if sys.platform == "win32":
+            # os.execvp not supported on Windows — use subprocess
+            subprocess.run(["kiro-cli", "chat", "--resume"], cwd=cwd)
+        else:
+            os.execvp("kiro-cli", ["kiro-cli", "chat", "--resume"])
 
 
 if __name__ == "__main__":

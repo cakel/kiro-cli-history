@@ -23,9 +23,13 @@ Kiro CLI has great built-in [conversation persistence](https://kiro.dev/docs/cli
 
 This tool **never writes to or modifies** your Kiro CLI session data. It only reads from:
 - `~/.kiro/sessions/cli/` (JSONL sessions)
-- `~/Library/Application Support/kiro-cli/data.sqlite3` (SQLite sessions, opened in read-only mode)
+- `~/Library/Application Support/kiro-cli/data.sqlite3` (SQLite sessions, macOS)
+- `%LOCALAPPDATA%\kiro-cli\data.sqlite3` (SQLite sessions, Windows)
+- `~/.local/share/kiro-cli/data.sqlite3` (SQLite sessions, Linux)
 
 ## Install
+
+### macOS / Linux
 
 ```bash
 git clone https://github.com/prabhugr/kiro-cli-history.git
@@ -33,10 +37,20 @@ cd kiro-cli-history
 bash install.sh
 ```
 
+### Windows
+
+```bat
+git clone https://github.com/prabhugr/kiro-cli-history.git
+cd kiro-cli-history
+install.bat
+```
+
+`install.bat` installs to `%LOCALAPPDATA%\kiro-cli-history` and automatically adds the `bin` directory to your **User PATH**, so `kiro-cli-history` works from any terminal after opening a new window.
+
 ### Dependencies
 
 - Python 3.9+
-- [textual](https://github.com/Textualize/textual) (installed automatically by `install.sh`)
+- [textual](https://github.com/Textualize/textual) (installed automatically by `install.sh` / `install.bat`)
 
 ## Usage
 
@@ -100,14 +114,22 @@ Kiro CLI's native `--resume` and `--resume-picker` work well when you know which
 
 ## Platform
 
-macOS (uses `pbcopy` for clipboard, macOS-specific paths).
+macOS, Linux, and Windows (Python 3.9+).
 
-Community PRs for Linux/Windows support are welcome.
+Clipboard support: `pbcopy` (macOS), `xclip`/`xsel` (Linux), `clip` (Windows).
 
 ## Uninstall
 
+### macOS / Linux
+
 ```bash
 bash uninstall.sh
+```
+
+### Windows
+
+```bat
+uninstall.bat
 ```
 
 ## Credits
