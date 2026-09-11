@@ -3,6 +3,7 @@ set -e
 
 INSTALL_DIR="$HOME/.local/share/kiro-cli-history"
 BIN_DIR="$HOME/.local/bin"
+VENV_DIR="$INSTALL_DIR/venv"
 
 echo "kiro-cli-history installer"
 echo "======================"
@@ -11,31 +12,31 @@ echo ""
 # Check dependencies
 if ! command -v python3 &>/dev/null; then
     echo "ERROR: python3 is required but not found."
-    echo "Install it via: brew install python3"
+    echo "Install it via your package manager (apt, brew, etc.)"
     exit 1
-fi
-
-# Check textual
-if ! python3 -c "import textual" 2>/dev/null; then
-    echo "Installing textual (TUI framework)..."
-    pip3 install textual --quiet
 fi
 
 # Create directories
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$BIN_DIR"
 
+# Create virtual environment
+echo "Creating virtual environment..."
+python3 -m venv "$VENV_DIR"
+
+# Install textual in venv
+echo "Installing textual (TUI framework)..."
+"$VENV_DIR/bin/pip" install --upgrade pip --quiet
+"$VENV_DIR/bin/pip" install textual --quiet
+
 # Copy files
 echo "Installing to $INSTALL_DIR..."
 cp "$(dirname "$0")/kiro_history.py" "$INSTALL_DIR/kiro_history.py"
 
-# Create wrapper script
-cat > "$BIN_DIR/kiro-cli-history" << 'EOF'
-#!/usr/bin/env python3
-import os, sys
-sys.path.insert(0, os.path.expanduser("~/.local/share/kiro-cli-history"))
-from kiro_history import main
-main()
+# Create wrapper script that uses venv python
+cat > "$BIN_DIR/kiro-cli-history" << EOF
+#!/bin/bash
+exec "$VENV_DIR/bin/python" "$INSTALL_DIR/kiro_history.py" "\$@"
 EOF
 chmod +x "$BIN_DIR/kiro-cli-history"
 

@@ -16,23 +16,27 @@ Kiro CLI has great built-in [conversation persistence](https://kiro.dev/docs/cli
 - **Full-text fuzzy search** — searches every message you and Kiro exchanged, not just titles
 - **Conversation preview** — read through the full exchange with markdown rendering before deciding to resume
 - **One-key resume** — press `Ctrl+R` to jump into Kiro CLI and continue the conversation
+- **Session management** — rename sessions (`F2`) or batch-generate titles for untitled sessions
+- **Lazy loading** — fast startup with background session loading; preview loads incrementally
 - **Copy to clipboard** — press `Ctrl+Y` to copy an entire conversation
 - **All session formats** — reads all three Kiro CLI storage versions (v1 SQLite, v2 SQLite, v3 JSONL), covering both `--classic` and new TUI modes
 
-## Read-only
+## Session data
 
-This tool **never writes to or modifies** your Kiro CLI session data. It only reads from:
+This tool reads from:
 - `~/.kiro/sessions/cli/` (JSONL sessions)
 - `~/Library/Application Support/kiro-cli/data.sqlite3` (SQLite sessions, macOS)
 - `%LOCALAPPDATA%\kiro-cli\data.sqlite3` (SQLite sessions, Windows)
 - `~/.local/share/kiro-cli/data.sqlite3` (SQLite sessions, Linux)
+
+Session titles can be modified via `F2` or command palette (writes back to source files).
 
 ## Install
 
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/prabhugr/kiro-cli-history.git
+git clone https://github.com/cakel/kiro-cli-history.git
 cd kiro-cli-history
 bash install.sh
 ```
@@ -40,7 +44,7 @@ bash install.sh
 ### Windows
 
 ```bat
-git clone https://github.com/prabhugr/kiro-cli-history.git
+git clone https://github.com/cakel/kiro-cli-history.git
 cd kiro-cli-history
 install.bat
 ```
@@ -65,16 +69,25 @@ Run it from anywhere. It searches globally.
 | Key | Action |
 |-----|--------|
 | `/` | Focus search bar |
-| `j` / `k` or `↓` / `↑` | Navigate sessions |
+| `↓` / `↑` or `j` / `k` | Navigate sessions |
 | `→` or `l` | Focus preview pane (for scrolling) |
 | `←` or `h` | Focus back to session list |
-| `m` or `space` | Load more messages (lazy loading) |
-| `Ctrl+R` | Resume the highlighted session in Kiro CLI |
+| `m` or `Space` | Load more messages (lazy loading) |
+| `F2` | Rename selected session |
+| `Ctrl+R` | Resume session in Kiro CLI |
 | `Ctrl+N` | Start a new Kiro CLI session |
 | `Ctrl+Y` | Copy conversation to clipboard |
+| `Ctrl+P` | Open command palette |
 | `Ctrl+F` | Focus search bar |
 | `Esc` | Clear search / Quit |
 | `Ctrl+C` | Quit |
+
+### Command palette (`Ctrl+P`)
+
+Access additional commands:
+- **Toggle --trust-all-tools** — enable/disable the flag on resume/new
+- **Toggle non-interactive sessions** — show/hide sessions with no user messages
+- **Generate titles for N untitled sessions** — batch-generate titles from first user message
 
 ### Searching
 
@@ -106,6 +119,12 @@ Kiro CLI stores conversations in three formats depending on the version and mode
 - **Message count** — total exchanges
 - **Duration** — elapsed time
 
+## Performance
+
+- **Lazy loading**: UI displays immediately while sessions load in background
+- **Incremental preview**: Only first 30 messages load initially; press `m` or `Space` for more
+- **8x faster** initial display on large sessions (4s → 0.5s on 2400-message sessions)
+
 ## How this complements Kiro CLI
 
 Kiro CLI's native `--resume` and `--resume-picker` work well when you know which directory a session was started in. `kiro-cli-history` is a companion tool for when you need to find a conversation but don't remember where it happened — it gives you a global view with full-text search.
@@ -115,6 +134,7 @@ Kiro CLI's native `--resume` and `--resume-picker` work well when you know which
 | Scope | Current directory | All directories |
 | Search | Browse by title | Full-text across all messages |
 | Preview | Title + message count | Full conversation with markdown |
+| Resume | By title | By session ID (reliable) |
 
 ## Platform
 
@@ -135,6 +155,8 @@ bash uninstall.sh
 ```bat
 uninstall.bat
 ```
+
+Removes the installation directory and cleans up PATH entries.
 
 ## Credits
 
