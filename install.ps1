@@ -42,7 +42,10 @@ Write-OK "Python: $pyVer"
 
 # -- 2. textual check / install --
 Write-Info "Checking textual..."
-& $pyCmd -c "import textual" 2>$null
+$textualCheck = $null
+try {
+    $textualCheck = & $pyCmd -c "import textual" 2>&1
+} catch {}
 if ($LASTEXITCODE -ne 0) {
     Write-Info "Installing textual..."
     & $pyCmd -m pip install textual --quiet
