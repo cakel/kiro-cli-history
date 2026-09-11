@@ -65,8 +65,12 @@ Run it from anywhere. It searches globally.
 | Key | Action |
 |-----|--------|
 | `/` | Focus search bar |
-| `j` / `k` or arrows | Navigate sessions |
+| `j` / `k` or `↓` / `↑` | Navigate sessions |
+| `→` or `l` | Focus preview pane (for scrolling) |
+| `←` or `h` | Focus back to session list |
+| `m` or `space` | Load more messages (lazy loading) |
 | `Ctrl+R` | Resume the highlighted session in Kiro CLI |
+| `Ctrl+N` | Start a new Kiro CLI session |
 | `Ctrl+Y` | Copy conversation to clipboard |
 | `Ctrl+F` | Focus search bar |
 | `Esc` | Clear search / Quit |

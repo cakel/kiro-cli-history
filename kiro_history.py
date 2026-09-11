@@ -18,8 +18,9 @@ from pathlib import Path
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Input, Static, ListView, ListItem, RichLog
+from textual.containers import Horizontal, Vertical, Center
+from textual.screen import ModalScreen
+from textual.widgets import Footer, Header, Input, Static, ListView, ListItem, RichLog, Button
 from rich.text import Text
 from rich.markdown import Markdown
 
@@ -378,6 +379,71 @@ def search_sessions(query, sessions):
 
 # --- UI Components ---
 
+class RenameScreen(ModalScreen):
+    """Dialog for renaming a session."""
+
+    CSS = """
+    RenameScreen {
+        align: center middle;
+    }
+    #rename-dialog {
+        width: 60;
+        height: auto;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #rename-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #rename-input {
+        margin: 1 0;
+    }
+    #rename-buttons {
+        margin-top: 1;
+        align: center middle;
+    }
+    #rename-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("enter", "save", "Save", show=False),
+    ]
+
+    def __init__(self, current_title: str):
+        super().__init__()
+        self._current_title = current_title
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="rename-dialog"):
+            yield Static("Rename Session", id="rename-title")
+            yield Input(value=self._current_title, id="rename-input", placeholder="Enter new title...")
+            with Horizontal(id="rename-buttons"):
+                yield Button("Save", variant="primary", id="save-btn")
+                yield Button("Cancel", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        self.query_one("#rename-input", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "save-btn":
+            self.action_save()
+        else:
+            self.action_cancel()
+
+    def action_save(self) -> None:
+        new_title = self.query_one("#rename-input", Input).value.strip()
+        self.dismiss(new_title if new_title else None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class SessionItem(ListItem):
     """A single session row in the list."""
 
@@ -433,6 +499,9 @@ class KiroHistory(App):
         height: 1fr;
         padding: 0 1;
     }
+    #preview:focus {
+        border: solid $accent;
+    }
     #status-bar {
         dock: bottom;
         height: 1;
@@ -454,13 +523,21 @@ class KiroHistory(App):
 
     BINDINGS = [
         Binding("ctrl+r", "resume", "Resume session"),
+        Binding("ctrl+n", "new_session", "New session"),
         Binding("ctrl+y", "copy_conversation", "Copy to clipboard"),
         Binding("ctrl+f", "search_content", "Search in conversation"),
+        Binding("f2", "rename_session", "Rename"),
         Binding("escape", "clear_or_quit", "Clear / Quit"),
         Binding("ctrl+c", "quit", "Quit"),
         Binding("/", "focus_search", "Search"),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
+        Binding("right", "focus_preview", "Preview", show=False),
+        Binding("l", "focus_preview", "Preview", show=False),
+        Binding("left", "focus_list", "List", show=False),
+        Binding("h", "focus_list", "List", show=False),
+        Binding("m", "load_more", "More", show=False),
+        Binding("space", "load_more", "More", show=False),
     ]
 
     def __init__(self):
@@ -468,7 +545,121 @@ class KiroHistory(App):
         self.all_sessions = []
         self.filtered_sessions = []
         self.selected_session = None
+        # Settings
+        self._trust_all_tools = True  # Default: enabled
+        self._show_non_interactive = True  # Default: show all sessions
         self._viewer_search_query = ""
+        # Lazy loading state
+        self._preview_messages = []  # Messages loaded so far
+        self._preview_all_loaded = False  # Whether all messages are loaded
+        self._preview_batch_size = 30  # Messages per batch
+        self._sessions_loading = True  # Whether sessions are still loading
+
+    def get_system_commands(self, screen):
+        """Add custom commands to the command palette."""
+        from textual.app import SystemCommand
+        yield from super().get_system_commands(screen)
+        
+        # Toggle --trust-all-tools
+        trust_status = "ON" if self._trust_all_tools else "OFF"
+        yield SystemCommand(
+            f"Toggle --trust-all-tools (currently {trust_status})",
+            "Enable/disable --trust-all-tools flag on resume/new",
+            self._toggle_trust_all_tools
+        )
+        
+        # Toggle non-interactive sessions visibility
+        ni_status = "shown" if self._show_non_interactive else "hidden"
+        yield SystemCommand(
+            f"Toggle non-interactive sessions (currently {ni_status})",
+            "Show/hide sessions with no user messages",
+            self._toggle_non_interactive
+        )
+        
+        # Generate titles for untitled sessions
+        untitled_count = sum(1 for s in self.all_sessions if s.get("title") in [None, "", "(untitled)"])
+        if untitled_count > 0:
+            yield SystemCommand(
+                f"Generate titles for {untitled_count} untitled sessions",
+                "Use kiro-cli to auto-generate titles based on conversation content",
+                self._generate_untitled_titles
+            )
+
+    def _toggle_trust_all_tools(self) -> None:
+        self._trust_all_tools = not self._trust_all_tools
+        status = "enabled" if self._trust_all_tools else "disabled"
+        self.notify(f"--trust-all-tools {status}")
+
+    def _toggle_non_interactive(self) -> None:
+        self._show_non_interactive = not self._show_non_interactive
+        self._refresh_sessions()
+        status = "shown" if self._show_non_interactive else "hidden"
+        self.notify(f"Non-interactive sessions {status}")
+
+    def _generate_untitled_titles(self) -> None:
+        """Generate titles for untitled sessions using first user message."""
+        untitled = [s for s in self.all_sessions if s.get("title") in [None, "", "(untitled)"]]
+        if not untitled:
+            self.notify("No untitled sessions found")
+            return
+        
+        updated = 0
+        for session in untitled:
+            # Get first user message as title
+            msgs = extract_messages(session, limit=5)
+            user_msgs = [m for m in msgs if m["role"] == "you"]
+            if user_msgs:
+                new_title = user_msgs[0]["text"][:100].strip()
+                if new_title:
+                    if self._update_session_title(session, new_title):
+                        updated += 1
+        
+        if updated > 0:
+            self.notify(f"Updated {updated} session titles")
+            # Reload sessions
+            self._sessions_loading = True
+            self._load_sessions_async()
+        else:
+            self.notify("No sessions could be updated")
+
+    def _update_session_title(self, session: dict, new_title: str) -> bool:
+        """Update session title in the source file."""
+        source = session.get("source")
+        
+        if source == "jsonl":
+            # Update JSONL metadata file
+            jsonl_path = session.get("jsonl_path")
+            if not jsonl_path:
+                return False
+            json_path = jsonl_path.replace(".jsonl", ".json")
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    metadata = json.load(f)
+                metadata["title"] = new_title
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(metadata, f, ensure_ascii=False, indent=2)
+                return True
+            except Exception:
+                return False
+        
+        elif source in ("sqlite_v2", "sqlite_v1"):
+            # Update SQLite database
+            db_path = _sqlite_db_path()
+            if not db_path or not os.path.exists(db_path):
+                return False
+            try:
+                table = "conversations_v2" if source == "sqlite_v2" else "conversations"
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute(
+                        f"UPDATE {table} SET title = ? WHERE session_id = ?",
+                        (new_title, session["session_id"])
+                    )
+                    conn.commit()
+                return True
+            except Exception:
+                return False
+        
+        return False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -482,11 +673,30 @@ class KiroHistory(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.all_sessions = get_sessions()
-        self.filtered_sessions = self.all_sessions
-        self._populate_list(self.filtered_sessions)
-        status = self.query_one("#status-bar", Static)
-        status.update(f" {len(self.all_sessions)} sessions | Ctrl+R resume | / search | ? help")
+        # Show loading indicator in the list area
+        list_view = self.query_one("#session-list", ListView)
+        list_view.append(ListItem(Static("Loading sessions...", classes="loading-hint")))
+        # Load sessions in background
+        self._load_sessions_async()
+
+    @work(thread=True)
+    def _load_sessions_async(self) -> None:
+        """Load sessions in background thread."""
+        sessions = get_sessions()
+        self.all_sessions = sessions
+        self.filtered_sessions = sessions
+        self._sessions_loading = False
+        self.call_from_thread(self._populate_list, sessions)
+        self.call_from_thread(
+            self.query_one("#status-bar", Static).update,
+            f" {len(sessions)} sessions | Ctrl+R resume | / search | ? help"
+        )
+        # If user typed search query while loading, apply it now
+        def apply_search():
+            search = self.query_one("#search-input", Input)
+            if search.value:
+                self._do_search(search.value)
+        self.call_from_thread(apply_search)
 
     def _populate_list(self, sessions):
         list_view = self.query_one("#session-list", ListView)
@@ -498,7 +708,37 @@ class KiroHistory(App):
 
     @on(Input.Changed, "#search-input")
     def on_search_changed(self, event: Input.Changed) -> None:
+        # Don't search while sessions are still loading
+        if self._sessions_loading:
+            return
         self._do_search(event.value)
+
+    def on_key(self, event) -> None:
+        """Handle key events for navigation."""
+        # Search input: down/j moves to session list
+        search_input = self.query_one("#search-input", Input)
+        if search_input.has_focus and event.key in ("down", "j"):
+            event.prevent_default()
+            event.stop()
+            self.query_one("#session-list", ListView).focus()
+            return
+
+        # Session list: up/k at first item moves to search input
+        list_view = self.query_one("#session-list", ListView)
+        if list_view.has_focus and event.key in ("up", "k"):
+            if list_view.index == 0 or len(list_view.children) == 0:
+                event.prevent_default()
+                event.stop()
+                search_input.focus()
+                return
+
+        # Preview pane: left/h moves back to session list
+        preview = self.query_one("#preview", RichLog)
+        if preview.has_focus and event.key in ("left", "h"):
+            event.prevent_default()
+            event.stop()
+            self.query_one("#session-list", ListView).focus()
+            return
 
     @work(thread=True)
     def _do_search(self, query: str) -> None:
@@ -518,6 +758,9 @@ class KiroHistory(App):
     @on(ListView.Highlighted, "#session-list")
     def on_session_highlighted(self, event: ListView.Highlighted) -> None:
         if event.item is None:
+            return
+        # Skip non-session items (e.g., "Loading sessions..." placeholder)
+        if not isinstance(event.item, SessionItem):
             return
         session = event.item.session
         self.selected_session = session
@@ -550,31 +793,81 @@ class KiroHistory(App):
         self.call_from_thread(preview.write, Text("─" * 50))
         self.call_from_thread(preview.write, Text(""))
 
-        # Messages
-        messages = extract_messages(session)
-        if not messages:
+        # Lazy loading: extract only first batch initially
+        self._preview_messages = extract_messages(session, limit=self._preview_batch_size)
+        self._preview_all_loaded = len(self._preview_messages) < self._preview_batch_size
+
+        if not self._preview_messages:
             self.call_from_thread(preview.write, Text("(no conversation data)"))
             return
 
+        # Render first batch
+        self.call_from_thread(self._render_messages, self._preview_messages)
+
+        # Show "load more" hint if there might be more messages
+        total_msgs = session.get("msg_count", 0)
+        if not self._preview_all_loaded and total_msgs > len(self._preview_messages):
+            remaining = total_msgs - len(self._preview_messages)
+            self.call_from_thread(preview.write, Text.from_markup(
+                f"[dim]─── ~{remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
+            ))
+
+    def _render_messages(self, messages: list) -> None:
+        """Render a list of messages to preview."""
+        preview = self.query_one("#preview", RichLog)
         for msg in messages:
             role = msg["role"]
             txt = msg["text"]
             if role == "you":
-                label = Text.from_markup(f"[bold cyan][YOU]:[/bold cyan]")
+                label = Text.from_markup("[bold cyan][YOU]:[/bold cyan]")
             else:
-                label = Text.from_markup(f"[bold green][KIRO]:[/bold green]")
-            self.call_from_thread(preview.write, label)
-            # Try to render as markdown for assistant messages
+                label = Text.from_markup("[bold green][KIRO]:[/bold green]")
+            preview.write(label)
             if role == "kiro":
                 try:
-                    self.call_from_thread(preview.write, Markdown(txt))
+                    preview.write(Markdown(txt))
                 except Exception:
-                    self.call_from_thread(preview.write, Text(txt))
+                    preview.write(Text(txt))
             else:
-                self.call_from_thread(preview.write, Text(txt))
-            self.call_from_thread(preview.write, Text(""))
+                preview.write(Text(txt))
+            preview.write(Text(""))
 
     # --- Actions ---
+
+    def _refresh_sessions(self) -> None:
+        """Refresh session list with current filter settings."""
+        if self._show_non_interactive:
+            self.filtered_sessions = self.all_sessions
+        else:
+            # Filter out non-interactive sessions (those without user messages)
+            self.filtered_sessions = [
+                s for s in self.all_sessions
+                if s.get("msg_count", 0) > 1  # Has more than just system/init message
+            ]
+        self._populate_list(self.filtered_sessions)
+        search = self.query_one("#search-input", Input)
+        if search.value:
+            self._do_search(search.value)
+
+    def action_rename_session(self) -> None:
+        """Rename the selected session (F2)."""
+        if not self.selected_session:
+            self.notify("No session selected", severity="warning")
+            return
+        
+        current_title = self.selected_session.get("title") or ""
+        
+        def handle_rename(new_title):
+            if new_title:
+                if self._update_session_title(self.selected_session, new_title):
+                    self.selected_session["title"] = new_title
+                    self.notify(f"Renamed to: {new_title[:50]}...")
+                    # Refresh the list to show new title
+                    self._populate_list(self.filtered_sessions)
+                else:
+                    self.notify("Failed to rename session", severity="error")
+        
+        self.push_screen(RenameScreen(current_title), handle_rename)
 
     def action_resume(self) -> None:
         if not self.selected_session:
@@ -583,7 +876,11 @@ class KiroHistory(App):
         if not cwd or not os.path.isdir(cwd):
             self.notify(f"Directory not found: {cwd}", severity="error")
             return
-        self.exit(result=("resume", self.selected_session))
+        self.exit(result=("resume", self.selected_session, self._trust_all_tools))
+
+    def action_new_session(self) -> None:
+        """Start a new kiro-cli session in the current directory."""
+        self.exit(result=("new", None, self._trust_all_tools))
 
     def action_focus_search(self) -> None:
         self.query_one("#search-input", Input).focus()
@@ -601,6 +898,57 @@ class KiroHistory(App):
 
     def action_cursor_up(self) -> None:
         self.query_one("#session-list", ListView).action_cursor_up()
+
+    def action_focus_preview(self) -> None:
+        """Focus the preview pane for scrolling."""
+        self.query_one("#preview", RichLog).focus()
+
+    def action_focus_list(self) -> None:
+        """Focus back to the session list."""
+        self.query_one("#session-list", ListView).focus()
+
+    def action_load_more(self) -> None:
+        """Load more messages in preview (lazy loading)."""
+        if not self.selected_session:
+            return
+        if self._preview_all_loaded:
+            self.notify("All messages loaded", severity="information")
+            return
+        self._load_more_messages()
+
+    @work(thread=True)
+    def _load_more_messages(self) -> None:
+        """Load next batch of messages from the session file."""
+        session = self.selected_session
+        if not session:
+            return
+
+        # Calculate how many we need to skip
+        skip = len(self._preview_messages)
+
+        # Extract all messages (with no limit), then take the next batch
+        # This is needed because extract_messages doesn't support offset
+        all_msgs = extract_messages(session)
+        new_msgs = all_msgs[skip:skip + self._preview_batch_size]
+
+        if not new_msgs:
+            self._preview_all_loaded = True
+            self.call_from_thread(self.notify, "All messages loaded", severity="information")
+            return
+
+        self._preview_messages.extend(new_msgs)
+        self._preview_all_loaded = len(all_msgs) <= len(self._preview_messages)
+
+        # Render new messages
+        self.call_from_thread(self._render_messages, new_msgs)
+
+        # Show hint if more remain
+        remaining = len(all_msgs) - len(self._preview_messages)
+        if remaining > 0:
+            preview = self.query_one("#preview", RichLog)
+            self.call_from_thread(preview.write, Text.from_markup(
+                f"[dim]─── {remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
+            ))
 
     def action_search_content(self) -> None:
         self.query_one("#search-input", Input).focus()
@@ -648,15 +996,31 @@ def main():
 
     if result and isinstance(result, tuple) and result[0] == "resume":
         session = result[1]
+        trust_all_tools = result[2] if len(result) > 2 else True
         cwd = session["cwd"]
-        print(f"\nResuming session: {session['title']}")
+        session_id = session.get("session_id", "")
+        print(f"\nResuming session: {session.get('title', '(untitled)')}")
+        print(f"Session ID: {session_id}")
         print(f"Directory: {cwd}\n")
         os.chdir(cwd)
+        cmd = ["kiro-cli", "chat", "--resume-id", session_id]
+        if trust_all_tools:
+            cmd.append("--trust-all-tools")
         if sys.platform == "win32":
-            # os.execvp not supported on Windows — use subprocess
-            subprocess.run(["kiro-cli", "chat", "--resume"], cwd=cwd)
+            subprocess.run(cmd, cwd=cwd)
         else:
-            os.execvp("kiro-cli", ["kiro-cli", "chat", "--resume"])
+            os.execvp("kiro-cli", cmd)
+
+    elif result and isinstance(result, tuple) and result[0] == "new":
+        trust_all_tools = result[2] if len(result) > 2 else True
+        print("\nStarting new kiro-cli session...\n")
+        cmd = ["kiro-cli", "chat"]
+        if trust_all_tools:
+            cmd.append("--trust-all-tools")
+        if sys.platform == "win32":
+            subprocess.run(cmd)
+        else:
+            os.execvp("kiro-cli", cmd)
 
 
 if __name__ == "__main__":
