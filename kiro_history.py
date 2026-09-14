@@ -225,7 +225,7 @@ def _load_jsonl_sessions():
             if jp.exists():
                 try:
                     data = jp.read_bytes()
-                    msg_count = data.count(b'"Prompt"') + data.count(b'"AssistantMessage"')
+                    msg_count = data.count(b'"kind":"Prompt"') + data.count(b'"kind":"AssistantMessage"')
                 except OSError:
                     pass
             # Compute duration
