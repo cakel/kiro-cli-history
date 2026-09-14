@@ -91,12 +91,26 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
     Write-OK "Virtual environment created with venv"
 }
 
-# -- 4. Copy main script --
+# -- 4. Copy main script and inject git hash --
 $srcScript = Join-Path $SCRIPT_DIR "kiro_history.py"
 if (-not (Test-Path $srcScript)) {
     Write-Err "kiro_history.py not found in $SCRIPT_DIR"
 }
 Copy-Item -LiteralPath $srcScript -Destination (Join-Path $installDir "kiro_history.py") -Force
+
+# Inject current git hash into installed script
+$destScript = Join-Path $installDir "kiro_history.py"
+try {
+    $gitHash = & git -C $SCRIPT_DIR rev-parse --short HEAD 2>$null
+    if ($LASTEXITCODE -eq 0 -and $gitHash) {
+        $content = Get-Content $destScript -Raw -Encoding UTF8
+        $content = $content -replace '_BUILT_HASH = ""', "_BUILT_HASH = `"$($gitHash.Trim())`""
+        [System.IO.File]::WriteAllText($destScript, $content, [System.Text.UTF8Encoding]::new($false))
+        Write-OK "Injected git hash: $($gitHash.Trim())"
+    }
+} catch {
+    Write-Info "Could not inject git hash (git not available)"
+}
 Write-OK "Copied kiro_history.py -> $installDir"
 
 # -- 5. Generate kiro-cli-history.bat using venv python --

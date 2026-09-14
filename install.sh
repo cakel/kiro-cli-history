@@ -68,6 +68,13 @@ fi
 echo "Installing to $INSTALL_DIR..."
 cp "$SCRIPT_DIR/kiro_history.py" "$INSTALL_DIR/kiro_history.py" || { echo "ERROR: Failed to copy kiro_history.py"; exit 1; }
 
+# Inject current git hash into installed script
+GIT_HASH=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || true)
+if [ -n "$GIT_HASH" ]; then
+    sed -i.bak "s/_BUILT_HASH = \"\"/_BUILT_HASH = \"$GIT_HASH\"/" "$INSTALL_DIR/kiro_history.py" && rm -f "$INSTALL_DIR/kiro_history.py.bak"
+    echo "Injected git hash: $GIT_HASH"
+fi
+
 # Create wrapper script atomically (tmp + mv to avoid partial writes)
 WRAPPER_TMP="$(mktemp "$BIN_DIR/.kiro-cli-history.XXXXXX")"
 cat > "$WRAPPER_TMP" << 'WRAPPER_EOF'

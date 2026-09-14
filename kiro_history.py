@@ -24,36 +24,44 @@ from textual.binding import Binding
 # Fallback version when git is not available
 VERSION = "v0.1.0-cakel.1"
 
+# Hash injected at install time by install.sh / install.ps1
+# If not replaced, falls back to git or VERSION constant
+_BUILT_HASH = ""
+
 def _get_version_string() -> str:
     """Return version string: tag + short hash, always.
 
-    Examples:
-      tagged commit:    v0.1.0-cakel.1-abc1234
-      untagged commit:  abc1234
-      no git:           v0.1.0-cakel.1  (fallback constant)
+    Priority:
+      1. _BUILT_HASH injected at install time
+      2. git rev-parse from current repo (dev mode)
+      3. VERSION constant (no git, no hash)
     """
+    tag = VERSION
+
+    # 1. Use hash injected at install time
+    if _BUILT_HASH:
+        return f"{tag}-{_BUILT_HASH}"
+
+    # 2. Try git (dev mode - running from repo)
     try:
         script_dir = Path(__file__).parent
-        # Get short hash (always shown)
         hash_result = subprocess.run(
             ["git", "-C", str(script_dir), "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, timeout=2
         )
-        if hash_result.returncode != 0:
-            return VERSION
-        short_hash = hash_result.stdout.strip()
-
-        # Try to get latest tag
-        tag_result = subprocess.run(
-            ["git", "-C", str(script_dir), "describe", "--tags", "--abbrev=0"],
-            capture_output=True, text=True, timeout=2
-        )
-        if tag_result.returncode == 0:
-            tag = tag_result.stdout.strip()
+        if hash_result.returncode == 0:
+            short_hash = hash_result.stdout.strip()
+            tag_result = subprocess.run(
+                ["git", "-C", str(script_dir), "describe", "--tags", "--abbrev=0"],
+                capture_output=True, text=True, timeout=2
+            )
+            if tag_result.returncode == 0:
+                tag = tag_result.stdout.strip()
             return f"{tag}-{short_hash}"
-        return short_hash
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
+
+    # 3. Fallback
     return VERSION
 
 from textual.containers import Horizontal, Vertical, Center
