@@ -411,11 +411,12 @@ class RenameScreen(ModalScreen):
         align: center middle;
     }
     #rename-dialog {
-        width: 60;
-        height: auto;
+        width: 80%;
+        height: 40%;
         border: thick $accent;
         background: $surface;
         padding: 1 2;
+        align: center middle;
     }
     #rename-title {
         text-align: center;
@@ -424,6 +425,7 @@ class RenameScreen(ModalScreen):
     }
     #rename-input {
         margin: 1 0;
+        width: 100%;
     }
     #rename-buttons {
         margin-top: 1;
