@@ -111,6 +111,24 @@ def _get_first_prompt_from_history(history):
     return "(untitled)"
 
 
+def _is_sqlite_subagent(history: list) -> bool:
+    """Detect subagent sessions in SQLite v2 history.
+
+    Subagent pattern: exactly 1 Prompt turn (the instruction) + at least 1
+    ToolUseResults turn.  A real 1-turn conversation has a Prompt but no
+    ToolUseResults, so it is kept as interactive.
+    """
+    prompt_turns = 0
+    tool_result_turns = 0
+    for entry in history:
+        content = entry.get("user", {}).get("content", {})
+        if "Prompt" in content:
+            prompt_turns += 1
+        if "ToolUseResults" in content:
+            tool_result_turns += 1
+    return prompt_turns == 1 and tool_result_turns >= 1
+
+
 def _load_sqlite_sessions():
     """Load sessions from the SQLite database (v1 + v2 tables)."""
     sessions = []
@@ -147,7 +165,7 @@ def _load_sqlite_sessions():
                     "msg_count": msg_count,
                     "duration_min": duration_min,
                     "_history": history,
-                    "is_subagent": False,  # SQLite sessions predate subagent feature
+                    "is_subagent": _is_sqlite_subagent(history),
                     "parent_session_id": None,
                 })
             except (json.JSONDecodeError, KeyError, ValueError):
@@ -851,15 +869,28 @@ class KiroHistory(App):
 
     def _is_non_interactive(self, session: dict) -> bool:
         """Check if a session is non-interactive (subagent or minimal messages).
+
+        Detection rules by source:
+        - JSONL: parent_session_id present (true child subagent)
+        - SQLite v2: is_subagent=True (1 Prompt + ToolUseResults pattern)
+        - Any: msg_count <= 1
         
-        A session is non-interactive if:
-        1. It's a subagent session WITH a parent (true subagent spawned by another session)
-        2. It has very few messages (0 or 1)
+        Note: JSONL sessions have is_subagent based on session_created_reason,
+        which is unreliable alone — normal sessions can also have it set.
+        Only use it for SQLite v2 where it's computed from history content.
         """
-        # True subagent: has parent_session_id (spawned by another session)
-        if session.get("parent_session_id"):
-            return True
-        # Sessions with very few messages (0 or 1) are non-interactive
+        source = session.get("source", "")
+
+        # JSONL: reliable indicator is parent_session_id
+        if source == "jsonl":
+            if session.get("parent_session_id"):
+                return True
+        # SQLite v2: reliable indicator is history-derived is_subagent
+        elif source == "sqlite_v2":
+            if session.get("is_subagent"):
+                return True
+
+        # Universal fallback: empty/minimal sessions
         if session.get("msg_count", 0) <= 1:
             return True
         return False

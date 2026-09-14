@@ -21,6 +21,15 @@ mkdir -p "$INSTALL_DIR"
 mkdir -p "$BIN_DIR"
 
 # Create virtual environment and install dependencies
+# Remove existing venv first to avoid stale state on reinstall
+if [ -d "$VENV_DIR" ]; then
+    echo "Removing existing virtual environment..."
+    # Kill any running kiro-cli-history processes holding the venv
+    pkill -f "kiro-cli-history.*python" 2>/dev/null || true
+    sleep 0.3
+    rm -rf "$VENV_DIR"
+fi
+
 # Prefer uv if available, fallback to standard venv
 if command -v uv &>/dev/null; then
     echo "Using uv (fast mode)..."
