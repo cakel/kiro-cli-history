@@ -694,17 +694,17 @@ class KiroHistory(App):
         session = event.item.session
         self.selected_session = session
         self._preview_loading_session_id = session.get("session_id")
-        # Close preview search when switching sessions
-        if self._preview_search_active:
-            self._preview_search_active = False
-            self._preview_search_query = ""
-            self._preview_search_executed = ""
-            self._preview_search_matches = []
-            self._preview_search_current = -1
-            ps = self.query_one("#preview-search", Input)
-            ps.value = ""
-            ps.display = False
-            self.query_one("#preview-search-info", Static).display = False
+        # Always clear preview search state when switching sessions
+        self._preview_search_active = False
+        self._preview_search_query = ""
+        self._preview_search_executed = ""
+        self._preview_search_matches = []
+        self._preview_search_current = -1
+        self._preview_msg_line_offsets = {}
+        ps = self.query_one("#preview-search", Input)
+        ps.value = ""
+        ps.display = False
+        self.query_one("#preview-search-info", Static).display = False
         self._load_preview(session)
 
     @work(thread=True)

@@ -541,6 +541,12 @@ async def test_search_state_cleared_on_session_switch(fixture_env):
         assert searched
         assert app._preview_search_executed != ""
 
+        # Close search bar with Esc BEFORE switching
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert not app._preview_search_active, "Search bar should be closed"
+        # Note: _preview_search_executed might still be set after Esc
+
         # Switch to next session
         app.query_one("#session-list", ListView).focus()
         await pilot.pause(POLL)
@@ -548,7 +554,7 @@ async def test_search_state_cleared_on_session_switch(fixture_env):
         await pilot.press("j")
         await pilot.pause(0.3)
 
-        # Search state must be cleared
+        # Search state must be cleared (even though search bar was already closed)
         assert not app._preview_search_active, "search still active after session switch"
         assert app._preview_search_executed == "", "executed not cleared on switch"
         assert app._preview_search_matches == [], "matches not cleared on switch"
