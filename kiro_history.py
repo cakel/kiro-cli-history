@@ -87,19 +87,23 @@ from rich.markdown import Markdown
 # --- UI Components ---
 
 class PreviewSearchInput(Input):
-    """Input that emits a custom message on Shift+Enter."""
+    """Search input for preview pane.
+    
+    Shift+Tab (BackTab) = previous match.
+    Enter = next match (handled by App via Input.Submitted).
+    """
     
     BINDINGS = [
-        Binding("shift+enter", "shift_enter", "Previous match", show=False),
+        Binding("shift+tab", "prev_match", "Previous match", show=False),
     ]
     
-    class ShiftEnterPressed(Message):
-        """Emitted when Shift+Enter is pressed."""
+    class PrevMatchRequested(Message):
+        """Emitted when Shift+Tab is pressed (go to previous match)."""
         pass
 
-    def action_shift_enter(self) -> None:
-        """Handle Shift+Enter key."""
-        self.post_message(self.ShiftEnterPressed())
+    def action_prev_match(self) -> None:
+        """Handle Shift+Tab → previous match."""
+        self.post_message(self.PrevMatchRequested())
 
 
 class RenameScreen(ModalScreen):
@@ -212,7 +216,7 @@ class SessionItem(ListItem):
         )
     
     def _highlight_text(self, text: str, query: str) -> str:
-        """Highlight query matches in text with black on yellow background."""
+        """Highlight query matches — bold+underline works regardless of selection color."""
         result = []
         i = 0
         text_lower = text.lower()
@@ -226,9 +230,9 @@ class SessionItem(ListItem):
             # Append text before match (escaped)
             before = text[i:pos].replace("[", "\\[").replace("]", "\\]")
             result.append(f"[bold]{before}[/bold]")
-            # Append highlighted match — use reverse for contrast even when selected
+            # Highlight match: bold + underline (visible in both normal and selected state)
             match = text[pos:pos + len(query)].replace("[", "\\[").replace("]", "\\]")
-            result.append(f"[bold reverse]{match}[/bold reverse]")
+            result.append(f"[bold underline]{match}[/bold underline]")
             i = pos + len(query)
         else:
             if i >= len(text):
@@ -569,7 +573,7 @@ class KiroHistory(App):
                 event.stop()
                 self._close_preview_search()
                 return
-            # Note: shift+enter handled by PreviewSearchInput.ShiftEnterPressed message
+            # Note: Shift+Tab (prev match) handled by PreviewSearchInput.PrevMatchRequested message
             # Ctrl+F again → next match
             if event.key == "ctrl+f":
                 event.prevent_default()
@@ -1083,10 +1087,10 @@ class KiroHistory(App):
             # New query or no results yet → execute search
             self._run_preview_search(query)
 
-    def on_preview_search_input_shift_enter_pressed(
-        self, event: PreviewSearchInput.ShiftEnterPressed
+    def on_preview_search_input_prev_match_requested(
+        self, event: PreviewSearchInput.PrevMatchRequested
     ) -> None:
-        """Shift+Enter in preview search → jump to previous match."""
+        """Shift+Tab in preview search → jump to previous match."""
         self._preview_search_prev()
 
     def _clear_search_highlights(self) -> None:
@@ -1261,7 +1265,7 @@ class KiroHistory(App):
         else:
             info.update(
                 f" {current + 1}/{total} matches for '{query}'"
-                " | Enter: next  Shift+Enter: prev  Esc: close"
+                " | Enter: next  Shift+Tab: prev  Esc: close"
             )
 
     def _rerender_preview(self, highlight_query: str = "") -> None:
@@ -1354,17 +1358,18 @@ class KiroHistory(App):
                 ))
 
     def _scroll_to_match(self, msg_index: int) -> None:
-        """Scroll preview so the matched message is visible.
-
-        Each message = label line + content lines + blank line.
-        We estimate line position from the header block (~8 lines) plus
-        message index. Not pixel-perfect with wrapped text but close enough.
-        """
+        """Scroll preview so the matched message is visible."""
         preview = self.query_one("#preview", RichLog)
-        # Header is roughly 8 lines, each message ~3 lines average
-        estimated_line = 8 + msg_index * 3
-        # Delay scroll to ensure RichLog has rendered the content
-        self.call_later(lambda: preview.scroll_to(y=estimated_line, animate=False))
+        # Count actual lines up to msg_index:
+        # Header = 9 lines (7 fields + separator + blank)
+        line = 9
+        for i, msg in enumerate(self._preview_messages):
+            if i >= msg_index:
+                break
+            # Each message = 1 label line + content lines + 1 blank line
+            content_lines = msg.get("text", "").count("\n") + 1
+            line += 1 + content_lines + 1
+        self.call_later(lambda ln=line: preview.scroll_to(y=ln, animate=False))
 
     def action_copy_conversation(self) -> None:
         if not self.selected_session:
