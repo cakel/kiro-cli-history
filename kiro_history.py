@@ -1255,20 +1255,18 @@ class KiroHistory(App):
                 for line in txt.split('\n'):
                     line_end = line_start + len(line)
                     if q in line.lower():
-                        # All matching lines get accent background (no current/other distinction
-                        # to avoid expensive re-render on next/prev navigation)
-                        rendered.stylize(f"on {highlight_bg}", line_start, line_end)
+                        # Dark text on accent background for readability
+                        rendered.stylize(f"black on {highlight_bg}", line_start, line_end)
                     line_start = line_end + 1  # +1 for the newline character
                 
-                # Apply word highlight (bold + contrasting color)
+                # Bold the matched words within highlighted lines
                 lower_txt = txt.lower()
                 start = 0
                 while True:
                     pos = lower_txt.find(q, start)
                     if pos == -1:
                         break
-                    # Word: bold with bright background for contrast
-                    rendered.stylize("bold reverse", pos, pos + len(q))
+                    rendered.stylize("bold", pos, pos + len(q))
                     start = pos + len(q)
                 preview.write(rendered)
             elif role == "kiro":
