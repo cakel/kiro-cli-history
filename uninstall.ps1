@@ -20,6 +20,10 @@ $binDir     = Join-Path $installDir "bin"
 $venvDir    = Join-Path $installDir "venv"
 $batPath    = Join-Path $binDir "kiro-cli-history.bat"
 
+# Legacy path (before path change to avoid Korean encoding issues)
+$legacyInstallDir = Join-Path $env:LOCALAPPDATA "kiro-cli-history"
+$legacyBinDir     = Join-Path $legacyInstallDir "bin"
+
 Write-Host ""
 Write-Host "====================================================================" -ForegroundColor White
 Write-Host "  kiro-cli-history uninstaller" -ForegroundColor White
@@ -65,15 +69,29 @@ if (Test-Path $installDir) {
     Write-Info "$installDir not found (already removed?)"
 }
 
+# -- 4b. Remove legacy install directory (pre-path-change versions) --
+if (Test-Path $legacyInstallDir) {
+    Write-Info "Found legacy installation at $legacyInstallDir"
+    try {
+        Remove-Item $legacyInstallDir -Recurse -Force -ErrorAction Stop
+        Write-OK "Removed legacy $legacyInstallDir"
+    } catch {
+        Write-Warn "Could not remove legacy ${legacyInstallDir}: $_"
+    }
+}
+
 # -- 5. Remove User PATH entry --
 try {
     $path    = [System.Environment]::GetEnvironmentVariable("Path", "User")
-    $target  = $binDir.TrimEnd('\')
-    $elements = $path -split ';' | Where-Object { $_ -and ($_.Trim().TrimEnd('\') -ne $target) }
+    # Remove both current and legacy bin directories
+    $targets = @($binDir.TrimEnd('\'), $legacyBinDir.TrimEnd('\'))
+    $elements = $path -split ';' | Where-Object { 
+        $_ -and ($targets -notcontains $_.Trim().TrimEnd('\'))
+    }
     $newPath  = $elements -join ';'
     if ($newPath -ne $path) {
         [System.Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-        Write-OK "Removed PATH entry: $binDir"
+        Write-OK "Removed PATH entries"
     } else {
         Write-Info "PATH entry not found (already removed?)"
     }

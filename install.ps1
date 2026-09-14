@@ -3,11 +3,11 @@
 .SYNOPSIS
   kiro-cli-history installer (Windows).
 .DESCRIPTION
-  Installs kiro_history.py under %LOCALAPPDATA%\kiro-cli-history,
+  Installs kiro_history.py under C:\ProgramData\kiro-cli-history,
   creates a virtual environment (prefers uv, falls back to venv),
   generates a launcher .bat, and registers the bin directory in the
   User PATH.
-  No admin rights required.
+  No admin rights required (standard users have write access to C:\ProgramData).
 #>
 
 $ErrorActionPreference = "Stop"
