@@ -546,19 +546,20 @@ def extract_messages(session: dict, limit=None, offset: int = 0) -> list:
                 if kind not in ("Prompt", "AssistantMessage"):
                     continue
                 data = d.get("data", {})
-                txt = ""
+                # Collect ALL text blocks (not just the first one)
+                txt_parts = []
                 for block in data.get("content", []) if isinstance(data.get("content"), list) else []:
                     if isinstance(block, dict) and block.get("kind") == "text":
-                        txt = block.get("data", "")
-                        break
-                if txt:
-                    if skipped < offset:
-                        skipped += 1
-                        continue
-                    role = "you" if kind == "Prompt" else "kiro"
-                    messages.append({"role": role, "text": txt})
-                    if limit and len(messages) >= limit:
-                        break
+                        txt_parts.append(block.get("data", ""))
+                txt = "\n".join(txt_parts)
+                # Include message even if text is empty (to keep indices aligned)
+                if skipped < offset:
+                    skipped += 1
+                    continue
+                role = "you" if kind == "Prompt" else "kiro"
+                messages.append({"role": role, "text": txt})
+                if limit and len(messages) >= limit:
+                    break
             except (json.JSONDecodeError, KeyError, ValueError):
                 pass
     return messages
