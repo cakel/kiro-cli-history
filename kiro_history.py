@@ -688,9 +688,9 @@ class KiroHistory(App):
         """Load sessions in background thread."""
         sessions = get_sessions()
         self.all_sessions = sessions
-        self.filtered_sessions = sessions
         self._sessions_loading = False
-        self.call_from_thread(self._populate_list, sessions)
+        # Apply filters and populate list
+        self.call_from_thread(self._refresh_sessions)
         self.call_from_thread(
             self.query_one("#status-bar", Static).update,
             f" {len(sessions)} sessions | Ctrl+R resume | / search | ? help"
