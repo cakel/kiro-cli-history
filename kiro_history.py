@@ -147,6 +147,8 @@ def _load_sqlite_sessions():
                     "msg_count": msg_count,
                     "duration_min": duration_min,
                     "_history": history,
+                    "is_subagent": False,  # SQLite sessions predate subagent feature
+                    "parent_session_id": None,
                 })
             except (json.JSONDecodeError, KeyError, ValueError):
                 pass
@@ -172,6 +174,8 @@ def _load_sqlite_sessions():
                     "msg_count": len(history),
                     "duration_min": 0,
                     "_history": history,
+                    "is_subagent": False,  # SQLite sessions predate subagent feature
+                    "parent_session_id": None,
                 })
             except (json.JSONDecodeError, KeyError, ValueError):
                 pass
@@ -228,6 +232,8 @@ def _load_jsonl_sessions():
                 "msg_count": msg_count,
                 "duration_min": duration_min,
                 "jsonl_path": jsonl_path,
+                "is_subagent": meta.get("session_created_reason") == "subagent",
+                "parent_session_id": meta.get("parent_session_id"),
             })
         except (json.JSONDecodeError, KeyError, ValueError, OSError):
             pass
@@ -723,7 +729,9 @@ class KiroHistory(App):
 
     @work(thread=True)
     def _do_search(self, query: str) -> None:
-        results = search_sessions(query, self.all_sessions)
+        # Search within currently filtered base (respects non-interactive/untitled toggles)
+        base = self._get_filtered_base()
+        results = search_sessions(query, base)
         self.filtered_sessions = results
         self.call_from_thread(self._populate_list, results)
         status_text = f" {len(results)}/{len(self.all_sessions)} sessions"
@@ -817,27 +825,44 @@ class KiroHistory(App):
 
     def _refresh_sessions(self) -> None:
         """Refresh session list with current filter settings."""
+        filtered = self._get_filtered_base()
+        self.filtered_sessions = filtered
+        self._populate_list(self.filtered_sessions)
+        search = self.query_one("#search-input", Input)
+        if search.value:
+            self._do_search(search.value)
+
+    def _get_filtered_base(self) -> list:
+        """Return sessions after applying non-interactive and untitled filters."""
         filtered = self.all_sessions
-        
-        # Filter non-interactive sessions
+
+        # Filter non-interactive sessions (subagent sessions or very few messages)
         if not self._show_non_interactive:
-            filtered = [
-                s for s in filtered
-                if s.get("msg_count", 0) > 1  # Has more than just system/init message
-            ]
-        
+            filtered = [s for s in filtered if not self._is_non_interactive(s)]
+
         # Filter untitled sessions
         if not self._show_untitled:
             filtered = [
                 s for s in filtered
                 if s.get("title") not in [None, "", "(untitled)"]
             ]
+
+        return filtered
+
+    def _is_non_interactive(self, session: dict) -> bool:
+        """Check if a session is non-interactive (subagent or minimal messages).
         
-        self.filtered_sessions = filtered
-        self._populate_list(self.filtered_sessions)
-        search = self.query_one("#search-input", Input)
-        if search.value:
-            self._do_search(search.value)
+        A session is non-interactive if:
+        1. It's a subagent session WITH a parent (true subagent spawned by another session)
+        2. It has very few messages (0 or 1)
+        """
+        # True subagent: has parent_session_id (spawned by another session)
+        if session.get("parent_session_id"):
+            return True
+        # Sessions with very few messages (0 or 1) are non-interactive
+        if session.get("msg_count", 0) <= 1:
+            return True
+        return False
 
     def action_rename_session(self) -> None:
         """Rename the selected session (F2)."""
