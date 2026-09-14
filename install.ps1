@@ -110,11 +110,14 @@ Write-OK "Copied session_store.py -> $installDir"
 $destScript = Join-Path $installDir "kiro_history.py"
 try {
     $gitHash = & git -C $SCRIPT_DIR rev-parse --short HEAD 2>$null
+    $hashOk = ($LASTEXITCODE -eq 0)
     $gitTag = & git -C $SCRIPT_DIR describe --tags --abbrev=0 2>$null
-    if ($LASTEXITCODE -eq 0 -and $gitHash) {
+    $tagOk = ($LASTEXITCODE -eq 0)
+    
+    if ($hashOk -and $gitHash) {
         $content = Get-Content $destScript -Raw -Encoding UTF8
         $content = $content -replace '_BUILT_HASH = ""', "_BUILT_HASH = `"$($gitHash.Trim())`""
-        if ($gitTag) {
+        if ($tagOk -and $gitTag) {
             $content = $content -replace '_BUILT_VERSION = ""', "_BUILT_VERSION = `"$($gitTag.Trim())`""
             Write-OK "Injected git version: $($gitTag.Trim())"
         }

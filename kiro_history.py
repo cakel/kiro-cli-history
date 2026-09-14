@@ -64,6 +64,7 @@ def _get_version_string() -> str:
         )
         if hash_result.returncode == 0:
             short_hash = hash_result.stdout.strip()
+            tag = VERSION  # fallback if describe fails
             tag_result = subprocess.run(
                 ["git", "-C", str(script_dir), "describe", "--tags", "--abbrev=0"],
                 capture_output=True, text=True, timeout=2
