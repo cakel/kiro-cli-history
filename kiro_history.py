@@ -34,7 +34,7 @@ from session_store import (
 # --- Version ---
 
 # Fallback version when git is not available
-VERSION = "v0.1.0-cakel.2"
+VERSION = "v0.1.0-cakel.3"
 
 # Hash injected at install time by install.sh / install.ps1
 # If not replaced, falls back to git or VERSION constant
