@@ -25,7 +25,17 @@ Write-Host "  kiro-cli-history uninstaller" -ForegroundColor White
 Write-Host "====================================================================" -ForegroundColor White
 Write-Host ""
 
-# -- 1. Remove launcher bat --
+# -- 1. Stop running kiro-cli-history processes --
+$procs = Get-Process python* -ErrorAction SilentlyContinue | Where-Object { 
+    $_.Path -and $_.Path -like "*kiro-cli-history*" 
+}
+if ($procs) {
+    Write-Info "Stopping running kiro-cli-history processes..."
+    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 300
+}
+
+# -- 2. Remove launcher bat --
 if (Test-Path $batPath) {
     try {
         Remove-Item $batPath -Force -ErrorAction Stop
@@ -37,12 +47,12 @@ if (Test-Path $batPath) {
     Write-Info "kiro-cli-history.bat not found (already removed?)"
 }
 
-# -- 2. Remove virtual environment --
+# -- 3. Remove virtual environment --
 if (Test-Path $venvDir) {
     Write-Info "Removing virtual environment: $venvDir"
 }
 
-# -- 3. Remove install directory (includes venv) --
+# -- 4. Remove install directory (includes venv) --
 if (Test-Path $installDir) {
     try {
         Remove-Item $installDir -Recurse -Force -ErrorAction Stop
@@ -54,7 +64,7 @@ if (Test-Path $installDir) {
     Write-Info "$installDir not found (already removed?)"
 }
 
-# -- 4. Remove User PATH entry --
+# -- 5. Remove User PATH entry --
 try {
     $path    = [System.Environment]::GetEnvironmentVariable("Path", "User")
     $target  = $binDir.TrimEnd('\')
