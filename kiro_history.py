@@ -29,6 +29,9 @@ from rich.markdown import Markdown
 
 # Paths — override with KIRO_DEMO_DIR env var for demo/recording
 _DEMO_DIR = os.environ.get("KIRO_DEMO_DIR", "")
+if _DEMO_DIR:
+    # Normalize to absolute path to prevent path traversal
+    _DEMO_DIR = str(Path(_DEMO_DIR).resolve())
 SESSIONS_DIR = Path(_DEMO_DIR) / "kiro" / "sessions" / "cli" if _DEMO_DIR else Path.home() / ".kiro" / "sessions" / "cli"
 
 def _sqlite_db_path() -> Path:
@@ -546,6 +549,8 @@ class SessionItem(ListItem):
         except (ValueError, TypeError):
             ts = raw_ts
         title = (self.session.get("title") or "(untitled)")[:60]
+        # Escape Rich markup characters to prevent rendering issues
+        title = title.replace("[", "\\[").replace("]", "\\]")
         cwd = os.path.basename(self.session.get("cwd") or "")
         msgs = self.session.get("msg_count", 0)
         dur = self.session.get("duration_min", 0)
@@ -704,6 +709,7 @@ class KiroHistory(App):
             if not jsonl_path:
                 return False
             json_path = jsonl_path.replace(".jsonl", ".json")
+            temp_path = None
             try:
                 with open(json_path, "r", encoding="utf-8") as f:
                     metadata = json.load(f)
@@ -722,7 +728,7 @@ class KiroHistory(App):
             except Exception:
                 # Clean up temp file if rename failed
                 try:
-                    if 'temp_path' in locals():
+                    if temp_path and os.path.exists(temp_path):
                         os.unlink(temp_path)
                 except OSError:
                     pass
@@ -755,12 +761,23 @@ class KiroHistory(App):
                             )
                             conn.commit()
                     else:
-                        # V2 has direct columns
-                        conn.execute(
-                            f"UPDATE {table} SET title = ? WHERE {id_col} = ?",
-                            (new_title, session["session_id"])
-                        )
-                        conn.commit()
+                        # V2: update title in value JSON (same structure as V1)
+                        # conversations_v2 has: key(cwd), conversation_id, value(JSON), created_at, updated_at
+                        lookup_key = session.get("session_id", "")
+                        if not lookup_key:
+                            return False
+                        row = conn.execute(
+                            f"SELECT value FROM {table} WHERE {id_col} = ?",
+                            (lookup_key,)
+                        ).fetchone()
+                        if row:
+                            data = json.loads(row[0])
+                            data["title"] = new_title
+                            conn.execute(
+                                f"UPDATE {table} SET value = ? WHERE {id_col} = ?",
+                                (json.dumps(data), lookup_key)
+                            )
+                            conn.commit()
                 return True
             except Exception:
                 return False
@@ -979,21 +996,26 @@ class KiroHistory(App):
         # Final guard before updating shared state
         if self._preview_loading_session_id != session_id:
             return
-            
-        self._preview_messages = messages
-        self._preview_all_loaded = all_loaded
+        
+        # Update shared state on main thread to avoid race conditions
+        def update_preview_state():
+            if self._preview_loading_session_id != session_id:
+                return
+            self._preview_messages = messages
+            self._preview_all_loaded = all_loaded
+        self.call_from_thread(update_preview_state)
 
-        if not self._preview_messages:
+        if not messages:
             self.call_from_thread(preview.write, Text("(no conversation data)"))
             return
 
         # Render first batch
-        self.call_from_thread(self._render_messages, self._preview_messages)
+        self.call_from_thread(self._render_messages, messages)
 
         # Show "load more" hint if there might be more messages
         total_msgs = session.get("msg_count", 0)
-        if not self._preview_all_loaded and total_msgs > len(self._preview_messages):
-            remaining = total_msgs - len(self._preview_messages)
+        if not all_loaded and total_msgs > len(messages):
+            remaining = total_msgs - len(messages)
             self.call_from_thread(preview.write, Text.from_markup(
                 f"[dim]─── ~{remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
             ))
@@ -1024,10 +1046,13 @@ class KiroHistory(App):
         """Refresh session list with current filter settings."""
         filtered = self._get_filtered_base()
         self.filtered_sessions = filtered
-        self._populate_list(self.filtered_sessions)
         search = self.query_one("#search-input", Input)
         if search.value:
-            self._do_search(search.value)
+            # Apply search with proper search_id for debounce
+            self._search_id += 1
+            self._do_search(search.value, self._search_id)
+        else:
+            self._populate_list(self.filtered_sessions)
 
     def _get_filtered_base(self) -> list:
         """Return sessions after applying non-interactive and untitled filters."""
@@ -1176,18 +1201,25 @@ class KiroHistory(App):
             return
 
         if not new_msgs:
-            self._preview_all_loaded = True
+            def mark_all_loaded():
+                self._preview_all_loaded = True
+            self.call_from_thread(mark_all_loaded)
             self.call_from_thread(self.notify, "All messages loaded", severity="information")
             return
 
-        self._preview_messages.extend(new_msgs)
-        self._preview_all_loaded = len(all_msgs) <= len(self._preview_messages)
+        # Update shared state on main thread
+        def update_state():
+            if self._preview_loading_session_id != session_id:
+                return
+            self._preview_messages.extend(new_msgs)
+            self._preview_all_loaded = len(all_msgs) <= len(self._preview_messages)
+        self.call_from_thread(update_state)
 
         # Render new messages
         self.call_from_thread(self._render_messages, new_msgs)
 
         # Show hint if more remain
-        remaining = len(all_msgs) - len(self._preview_messages)
+        remaining = len(all_msgs) - (skip + len(new_msgs))
         if remaining > 0:
             preview = self.query_one("#preview", RichLog)
             self.call_from_thread(preview.write, Text.from_markup(
@@ -1200,9 +1232,18 @@ class KiroHistory(App):
     def action_copy_conversation(self) -> None:
         if not self.selected_session:
             return
-        messages = extract_messages(self.selected_session)
+        # Run in background to avoid blocking UI
+        self._copy_conversation_async()
+
+    @work(thread=True)
+    def _copy_conversation_async(self) -> None:
+        """Copy conversation to clipboard in background thread."""
+        session = self.selected_session
+        if not session:
+            return
+        messages = extract_messages(session)
         if not messages:
-            self.notify("No messages to copy", severity="warning")
+            self.call_from_thread(self.notify, "No messages to copy", severity="warning")
             return
         text = ""
         for msg in messages:
@@ -1219,6 +1260,7 @@ class KiroHistory(App):
                 process.communicate(text.encode("utf-8"))
             else:
                 # Linux: try xclip then xsel
+                process = None
                 for cmd in (["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
                     try:
                         process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
@@ -1226,12 +1268,16 @@ class KiroHistory(App):
                         break
                     except FileNotFoundError:
                         continue
-                else:
-                    self.notify("No clipboard tool found (install xclip or xsel)", severity="error")
+                if process is None:
+                    self.call_from_thread(self.notify, "No clipboard tool found (install xclip or xsel)", severity="error")
                     return
-            self.notify(f"Copied {len(messages)} messages to clipboard")
+            # Check return code
+            if process.returncode != 0:
+                self.call_from_thread(self.notify, "Clipboard copy failed", severity="error")
+                return
+            self.call_from_thread(self.notify, f"Copied {len(messages)} messages to clipboard")
         except FileNotFoundError:
-            self.notify("Clipboard tool not found", severity="error")
+            self.call_from_thread(self.notify, "Clipboard tool not found", severity="error")
 
 
 # --- Entry Point ---

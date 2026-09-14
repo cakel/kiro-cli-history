@@ -84,19 +84,26 @@ class TestSQLiteRename:
     """Test SQLite session rename."""
 
     def test_rename_v2_updates_correct_column(self, tmp_path):
-        """V2 rename should use conversation_id column."""
+        """V2 rename should update title in value JSON."""
         db_path = tmp_path / "test.sqlite3"
         conn = sqlite3.connect(db_path)
         conn.execute("""
             CREATE TABLE conversations_v2 (
+                key TEXT,
                 conversation_id TEXT PRIMARY KEY,
-                title TEXT,
-                cwd TEXT
+                value TEXT,
+                created_at INTEGER,
+                updated_at INTEGER
             )
         """)
+        # V2 stores data as JSON in value column
+        v2_data = json.dumps({
+            "title": "old title",
+            "history": []
+        })
         conn.execute(
-            "INSERT INTO conversations_v2 VALUES (?, ?, ?)",
-            ("sess-123", "old title", "/path")
+            "INSERT INTO conversations_v2 VALUES (?, ?, ?, ?, ?)",
+            ("/path", "sess-123", v2_data, 0, 0)
         )
         conn.commit()
         conn.close()
@@ -116,12 +123,13 @@ class TestSQLiteRename:
         
         conn = sqlite3.connect(db_path)
         row = conn.execute(
-            "SELECT title FROM conversations_v2 WHERE conversation_id = ?",
+            "SELECT value FROM conversations_v2 WHERE conversation_id = ?",
             ("sess-123",)
         ).fetchone()
         conn.close()
         
-        assert row[0] == "new title"
+        data = json.loads(row[0])
+        assert data["title"] == "new title"
 
     def test_rename_v1_key_value_structure(self, tmp_path):
         """V1 uses key-value structure: key=cwd, value=JSON in conversations table."""
