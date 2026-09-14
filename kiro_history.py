@@ -1247,16 +1247,20 @@ class KiroHistory(App):
             preview.write(label)
 
             if q and i in match_indices:
-                # Matching message: line background + word highlight
+                # Matching message: highlight only lines containing the match
                 rendered = RichText(txt)
                 
-                # Apply line background (different for current vs other matches)
-                if i == current_match_idx:
-                    # Current match: brighter background
-                    rendered.stylize(f"on {current_line_bg}")
-                else:
-                    # Other matches: subtle background
-                    rendered.stylize(f"on {line_bg_color}")
+                # Find line boundaries and apply background only to matching lines
+                line_start = 0
+                for line in txt.split('\n'):
+                    line_end = line_start + len(line)
+                    if q in line.lower():
+                        # This line contains a match — apply background
+                        if i == current_match_idx:
+                            rendered.stylize(f"on {current_line_bg}", line_start, line_end)
+                        else:
+                            rendered.stylize(f"on {line_bg_color}", line_start, line_end)
+                    line_start = line_end + 1  # +1 for the newline character
                 
                 # Apply word highlight (bold + contrasting color)
                 lower_txt = txt.lower()
