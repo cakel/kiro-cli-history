@@ -147,6 +147,8 @@ def _load_sqlite_sessions():
                     "msg_count": msg_count,
                     "duration_min": duration_min,
                     "_history": history,
+                    "is_subagent": False,  # SQLite sessions predate subagent feature
+                    "parent_session_id": None,
                 })
             except (json.JSONDecodeError, KeyError, ValueError):
                 pass
@@ -172,6 +174,8 @@ def _load_sqlite_sessions():
                     "msg_count": len(history),
                     "duration_min": 0,
                     "_history": history,
+                    "is_subagent": False,  # SQLite sessions predate subagent feature
+                    "parent_session_id": None,
                 })
             except (json.JSONDecodeError, KeyError, ValueError):
                 pass

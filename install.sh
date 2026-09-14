@@ -25,7 +25,7 @@ mkdir -p "$BIN_DIR"
 if command -v uv &>/dev/null; then
     echo "Using uv (fast mode)..."
     uv venv "$VENV_DIR"
-    uv pip install textual --python "$VENV_DIR/bin/python"
+    uv pip install textual --python "$VENV_DIR/bin/python" || { echo "ERROR: uv pip install failed"; exit 1; }
 else
     echo "Using standard venv..."
     python3 -m venv "$VENV_DIR"
