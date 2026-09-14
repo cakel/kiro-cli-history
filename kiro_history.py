@@ -292,7 +292,7 @@ def _load_jsonl_sessions():
             stat = jsonl_file.stat()
             created = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%dT%H:%M:%S")
             updated = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
-            duration_min = int((stat.st_mtime - stat.st_ctime) / 60)
+            duration_min = max(0, int((stat.st_mtime - stat.st_ctime) / 60))
             sessions.append({
                 "session_id": session_id,
                 "title": "(untitled)",

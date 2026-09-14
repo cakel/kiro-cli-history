@@ -77,8 +77,9 @@ MAIN_SCRIPT="MAIN_SCRIPT_PLACEHOLDER"
 exec "$VENV_PYTHON" "$MAIN_SCRIPT" "$@"
 WRAPPER_EOF
 # Substitute actual paths after heredoc (avoids quote escaping in heredoc)
-sed -i "s|VENV_PYTHON_PLACEHOLDER|${VENV_DIR}/bin/python|g" "$WRAPPER_TMP"
-sed -i "s|MAIN_SCRIPT_PLACEHOLDER|${INSTALL_DIR}/kiro_history.py|g" "$WRAPPER_TMP"
+# Use portable sed -i syntax: macOS (BSD) requires backup extension, Linux (GNU) works with ""
+sed -i.bak "s|VENV_PYTHON_PLACEHOLDER|${VENV_DIR}/bin/python|g" "$WRAPPER_TMP" && rm -f "${WRAPPER_TMP}.bak"
+sed -i.bak "s|MAIN_SCRIPT_PLACEHOLDER|${INSTALL_DIR}/kiro_history.py|g" "$WRAPPER_TMP" && rm -f "${WRAPPER_TMP}.bak"
 chmod +x "$WRAPPER_TMP"
 mv "$WRAPPER_TMP" "$BIN_DIR/kiro-cli-history"
 
