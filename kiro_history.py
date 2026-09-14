@@ -421,14 +421,15 @@ class KiroHistory(App):
                             f"SELECT value FROM {table} WHERE {id_col} = ?",
                             (lookup_key,)
                         ).fetchone()
-                        if row:
-                            data = json.loads(row[0])
-                            data["title"] = new_title
-                            conn.execute(
-                                f"UPDATE {table} SET value = ? WHERE {id_col} = ?",
-                                (json.dumps(data), lookup_key)
-                            )
-                            conn.commit()
+                        if not row:
+                            return False
+                        data = json.loads(row[0])
+                        data["title"] = new_title
+                        conn.execute(
+                            f"UPDATE {table} SET value = ? WHERE {id_col} = ?",
+                            (json.dumps(data), lookup_key)
+                        )
+                        conn.commit()
                     else:
                         # V2: update title in value JSON (same structure as V1)
                         # conversations_v2 has: key(cwd), conversation_id, value(JSON), created_at, updated_at
@@ -439,14 +440,15 @@ class KiroHistory(App):
                             f"SELECT value FROM {table} WHERE {id_col} = ?",
                             (lookup_key,)
                         ).fetchone()
-                        if row:
-                            data = json.loads(row[0])
-                            data["title"] = new_title
-                            conn.execute(
-                                f"UPDATE {table} SET value = ? WHERE {id_col} = ?",
-                                (json.dumps(data), lookup_key)
-                            )
-                            conn.commit()
+                        if not row:
+                            return False
+                        data = json.loads(row[0])
+                        data["title"] = new_title
+                        conn.execute(
+                            f"UPDATE {table} SET value = ? WHERE {id_col} = ?",
+                            (json.dumps(data), lookup_key)
+                        )
+                        conn.commit()
                 return True
             except Exception:
                 return False
