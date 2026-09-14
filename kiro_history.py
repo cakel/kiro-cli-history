@@ -218,19 +218,16 @@ def _load_jsonl_sessions():
                 meta = json.load(f)
             created = meta.get("created_at") or ""
             updated = meta.get("updated_at") or ""
-            # Count messages in JSONL
+            # Count messages in JSONL — use fast byte search instead of JSON parsing
             jsonl_path = str(json_file).replace(".json", ".jsonl")
             msg_count = 0
             jp = Path(jsonl_path)
             if jp.exists():
-                with open(jp, encoding="utf-8") as jf:
-                    for line in jf:
-                        try:
-                            ld = json.loads(line)
-                            if ld.get("kind") in ("Prompt", "AssistantMessage"):
-                                msg_count += 1
-                        except (json.JSONDecodeError, ValueError):
-                            pass
+                try:
+                    data = jp.read_bytes()
+                    msg_count = data.count(b'"kind":"Prompt"') + data.count(b'"kind":"AssistantMessage"')
+                except OSError:
+                    pass
             # Compute duration
             duration_min = 0
             if created and updated:
@@ -411,11 +408,12 @@ class RenameScreen(ModalScreen):
         align: center middle;
     }
     #rename-dialog {
-        width: 60;
-        height: auto;
+        width: 80%;
+        height: 40%;
         border: thick $accent;
         background: $surface;
         padding: 1 2;
+        align: center middle;
     }
     #rename-title {
         text-align: center;
@@ -424,6 +422,7 @@ class RenameScreen(ModalScreen):
     }
     #rename-input {
         margin: 1 0;
+        width: 100%;
     }
     #rename-buttons {
         margin-top: 1;
@@ -571,8 +570,8 @@ class KiroHistory(App):
         self.selected_session = None
         # Settings
         self._trust_all_tools = True  # Default: enabled
-        self._show_non_interactive = True  # Default: show all sessions
-        self._show_untitled = True  # Default: show untitled sessions
+        self._show_non_interactive = False  # Default: hide non-interactive sessions
+        self._show_untitled = False  # Default: hide untitled sessions
         self._viewer_search_query = ""
         # Lazy loading state
         self._preview_messages = []  # Messages loaded so far
