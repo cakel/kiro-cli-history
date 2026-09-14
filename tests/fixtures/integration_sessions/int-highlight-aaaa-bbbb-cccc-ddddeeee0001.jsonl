@@ -1,0 +1,112 @@
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Visit https://example.com for documentation"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"The example.com site has API docs"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Can I use example.com/api?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Yes, example.com/api is public"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What about example.com/auth?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com/auth requires login"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Send request to example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Request sent to example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Check example.com status"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com is online"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Download from example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Downloaded from example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Final check on example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"All checks complete"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What else can you help with?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"I can help with many things"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Visit https://example.com for documentation"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"The example.com site has API docs"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Can I use example.com/api?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Yes, example.com/api is public"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What about example.com/auth?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com/auth requires login"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Send request to example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Request sent to example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Check example.com status"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com is online"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Download from example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Downloaded from example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Final check on example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"All checks complete"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What else can you help with?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"I can help with many things"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Visit https://example.com for documentation"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"The example.com site has API docs"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Can I use example.com/api?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Yes, example.com/api is public"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What about example.com/auth?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com/auth requires login"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Send request to example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Request sent to example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Check example.com status"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com is online"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Download from example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Downloaded from example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Final check on example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"All checks complete"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What else can you help with?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"I can help with many things"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Visit https://example.com for documentation"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"The example.com site has API docs"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Can I use example.com/api?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Yes, example.com/api is public"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What about example.com/auth?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com/auth requires login"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Send request to example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Request sent to example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Check example.com status"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com is online"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Download from example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Downloaded from example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Final check on example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"All checks complete"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What else can you help with?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"I can help with many things"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Visit https://example.com for documentation"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"The example.com site has API docs"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Can I use example.com/api?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Yes, example.com/api is public"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What about example.com/auth?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com/auth requires login"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Send request to example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Request sent to example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Check example.com status"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com is online"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Download from example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Downloaded from example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Final check on example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"All checks complete"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What else can you help with?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"I can help with many things"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Visit https://example.com for documentation"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"The example.com site has API docs"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Can I use example.com/api?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Yes, example.com/api is public"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What about example.com/auth?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com/auth requires login"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Send request to example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Request sent to example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Check example.com status"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com is online"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Download from example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Downloaded from example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Final check on example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"All checks complete"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What else can you help with?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"I can help with many things"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Visit https://example.com for documentation"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"The example.com site has API docs"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Can I use example.com/api?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Yes, example.com/api is public"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What about example.com/auth?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com/auth requires login"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Send request to example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Request sent to example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Check example.com status"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"example.com is online"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Download from example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"Downloaded from example.com"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"Final check on example.com"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"All checks complete"}]}}
+{"version":"1","kind":"Prompt","data":{"content":[{"kind":"text","data":"What else can you help with?"}]}}
+{"version":"1","kind":"AssistantMessage","data":{"content":[{"kind":"text","data":"I can help with many things"}]}}
