@@ -729,7 +729,9 @@ class KiroHistory(App):
 
     @work(thread=True)
     def _do_search(self, query: str) -> None:
-        results = search_sessions(query, self.all_sessions)
+        # Search within currently filtered base (respects non-interactive/untitled toggles)
+        base = self._get_filtered_base()
+        results = search_sessions(query, base)
         self.filtered_sessions = results
         self.call_from_thread(self._populate_list, results)
         status_text = f" {len(results)}/{len(self.all_sessions)} sessions"
@@ -823,27 +825,29 @@ class KiroHistory(App):
 
     def _refresh_sessions(self) -> None:
         """Refresh session list with current filter settings."""
+        filtered = self._get_filtered_base()
+        self.filtered_sessions = filtered
+        self._populate_list(self.filtered_sessions)
+        search = self.query_one("#search-input", Input)
+        if search.value:
+            self._do_search(search.value)
+
+    def _get_filtered_base(self) -> list:
+        """Return sessions after applying non-interactive and untitled filters."""
         filtered = self.all_sessions
-        
+
         # Filter non-interactive sessions (subagent sessions or very few messages)
         if not self._show_non_interactive:
-            filtered = [
-                s for s in filtered
-                if not self._is_non_interactive(s)
-            ]
-        
+            filtered = [s for s in filtered if not self._is_non_interactive(s)]
+
         # Filter untitled sessions
         if not self._show_untitled:
             filtered = [
                 s for s in filtered
                 if s.get("title") not in [None, "", "(untitled)"]
             ]
-        
-        self.filtered_sessions = filtered
-        self._populate_list(self.filtered_sessions)
-        search = self.query_one("#search-input", Input)
-        if search.value:
-            self._do_search(search.value)
+
+        return filtered
 
     def _is_non_interactive(self, session: dict) -> bool:
         """Check if a session is non-interactive (subagent or minimal messages).

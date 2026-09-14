@@ -51,10 +51,8 @@ if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installD
 if (-not (Test-Path $binDir))     { New-Item -ItemType Directory -Path $binDir     -Force | Out-Null }
 
 # -- 3. Create virtual environment (prefer uv, fallback to venv) --
-$useUv = $false
 if (Get-Command uv -ErrorAction SilentlyContinue) {
     Write-Info "Using uv (fast mode)..."
-    $useUv = $true
     & uv venv $venvDir
     if ($LASTEXITCODE -ne 0) { Write-Err "Failed to create venv with uv" }
     & uv pip install textual --python "$venvDir\Scripts\python.exe"
