@@ -694,7 +694,9 @@ class KiroHistory(App):
         session = event.item.session
         self.selected_session = session
         self._preview_loading_session_id = session.get("session_id")
-        # Always clear preview search state when switching sessions
+        # Always clear all preview state when switching sessions
+        self._preview_messages = []
+        self._preview_all_loaded = False
         self._preview_search_active = False
         self._preview_search_query = ""
         self._preview_search_executed = ""
