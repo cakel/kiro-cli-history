@@ -14,10 +14,15 @@ function Write-OK   { param($m) Write-Host "[OK]    $m" -ForegroundColor Green }
 function Write-Info { param($m) Write-Host "[INFO]  $m" -ForegroundColor Cyan }
 function Write-Warn { param($m) Write-Host "[WARN]  $m" -ForegroundColor Yellow }
 
-$installDir = Join-Path $env:LOCALAPPDATA "kiro-cli-history"
+# Use fixed path matching install.ps1
+$installDir = "C:\ProgramData\kiro-cli-history"
 $binDir     = Join-Path $installDir "bin"
 $venvDir    = Join-Path $installDir "venv"
 $batPath    = Join-Path $binDir "kiro-cli-history.bat"
+
+# Legacy path (before path change to avoid Korean encoding issues)
+$legacyInstallDir = Join-Path $env:LOCALAPPDATA "kiro-cli-history"
+$legacyBinDir     = Join-Path $legacyInstallDir "bin"
 
 Write-Host ""
 Write-Host "====================================================================" -ForegroundColor White
@@ -25,7 +30,17 @@ Write-Host "  kiro-cli-history uninstaller" -ForegroundColor White
 Write-Host "====================================================================" -ForegroundColor White
 Write-Host ""
 
-# -- 1. Remove launcher bat --
+# -- 1. Stop running kiro-cli-history processes --
+$procs = Get-Process python* -ErrorAction SilentlyContinue | Where-Object { 
+    $_.Path -and $_.Path -like "*kiro-cli-history*" 
+}
+if ($procs) {
+    Write-Info "Stopping running kiro-cli-history processes..."
+    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 300
+}
+
+# -- 2. Remove launcher bat --
 if (Test-Path $batPath) {
     try {
         Remove-Item $batPath -Force -ErrorAction Stop
@@ -37,12 +52,12 @@ if (Test-Path $batPath) {
     Write-Info "kiro-cli-history.bat not found (already removed?)"
 }
 
-# -- 2. Remove virtual environment --
+# -- 3. Remove virtual environment --
 if (Test-Path $venvDir) {
     Write-Info "Removing virtual environment: $venvDir"
 }
 
-# -- 3. Remove install directory (includes venv) --
+# -- 4. Remove install directory (includes venv) --
 if (Test-Path $installDir) {
     try {
         Remove-Item $installDir -Recurse -Force -ErrorAction Stop
@@ -54,15 +69,29 @@ if (Test-Path $installDir) {
     Write-Info "$installDir not found (already removed?)"
 }
 
-# -- 4. Remove User PATH entry --
+# -- 4b. Remove legacy install directory (pre-path-change versions) --
+if (Test-Path $legacyInstallDir) {
+    Write-Info "Found legacy installation at $legacyInstallDir"
+    try {
+        Remove-Item $legacyInstallDir -Recurse -Force -ErrorAction Stop
+        Write-OK "Removed legacy $legacyInstallDir"
+    } catch {
+        Write-Warn "Could not remove legacy ${legacyInstallDir}: $_"
+    }
+}
+
+# -- 5. Remove User PATH entry --
 try {
     $path    = [System.Environment]::GetEnvironmentVariable("Path", "User")
-    $target  = $binDir.TrimEnd('\')
-    $elements = $path -split ';' | Where-Object { $_ -and ($_.Trim().TrimEnd('\') -ne $target) }
+    # Remove both current and legacy bin directories
+    $targets = @($binDir.TrimEnd('\'), $legacyBinDir.TrimEnd('\'))
+    $elements = $path -split ';' | Where-Object { 
+        $_ -and ($targets -notcontains $_.Trim().TrimEnd('\'))
+    }
     $newPath  = $elements -join ';'
     if ($newPath -ne $path) {
         [System.Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-        Write-OK "Removed PATH entry: $binDir"
+        Write-OK "Removed PATH entries"
     } else {
         Write-Info "PATH entry not found (already removed?)"
     }

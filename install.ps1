@@ -3,11 +3,11 @@
 .SYNOPSIS
   kiro-cli-history installer (Windows).
 .DESCRIPTION
-  Installs kiro_history.py under %LOCALAPPDATA%\kiro-cli-history,
+  Installs kiro_history.py under C:\ProgramData\kiro-cli-history,
   creates a virtual environment (prefers uv, falls back to venv),
   generates a launcher .bat, and registers the bin directory in the
   User PATH.
-  No admin rights required.
+  No admin rights required (standard users have write access to C:\ProgramData).
 #>
 
 $ErrorActionPreference = "Stop"
@@ -42,7 +42,9 @@ $pyVer = (& $pyCmd --version) 2>&1
 Write-OK "Python: $pyVer"
 
 # -- 2. Install dirs --
-$installDir = Join-Path $env:LOCALAPPDATA "kiro-cli-history"
+# Use a fixed path without potential Korean/Unicode characters in username
+# C:\ProgramData is system-wide and ASCII-only
+$installDir = "C:\ProgramData\kiro-cli-history"
 $binDir     = Join-Path $installDir "bin"
 $venvDir    = Join-Path $installDir "venv"
 
@@ -110,14 +112,11 @@ setlocal
 endlocal & exit /b %ERRORLEVEL%
 "@
 
-# Write in OEM codepage so cmd.exe handles non-ASCII paths correctly
-$oemCp = $null
-try {
-    $oemCp = [int](Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage' -ErrorAction Stop).OEMCP
-} catch {}
-if (-not $oemCp) { $oemCp = [System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage }
-$oemEnc = [System.Text.Encoding]::GetEncoding($oemCp)
-[System.IO.File]::WriteAllText($batPath, $batBody, $oemEnc)
+# Write in UTF-8 with BOM for better Unicode path support
+# Note: Some older cmd.exe may not handle UTF-8 BOM correctly, but this is safer
+# for paths containing non-ASCII characters (Korean, CJK, etc.)
+$utf8Bom = New-Object System.Text.UTF8Encoding($true)
+[System.IO.File]::WriteAllText($batPath, $batBody, $utf8Bom)
 Write-OK "Wrote launcher bat: $batPath"
 
 # -- 6. Register bin dir in User PATH (idempotent) --

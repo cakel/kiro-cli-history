@@ -29,6 +29,9 @@ from rich.markdown import Markdown
 
 # Paths — override with KIRO_DEMO_DIR env var for demo/recording
 _DEMO_DIR = os.environ.get("KIRO_DEMO_DIR", "")
+if _DEMO_DIR:
+    # Normalize to absolute path to prevent path traversal
+    _DEMO_DIR = str(Path(_DEMO_DIR).resolve())
 SESSIONS_DIR = Path(_DEMO_DIR) / "kiro" / "sessions" / "cli" if _DEMO_DIR else Path.home() / ".kiro" / "sessions" / "cli"
 
 def _sqlite_db_path() -> Path:
@@ -137,79 +140,94 @@ def _load_sqlite_sessions():
 
     try:
         conn = sqlite3.connect(f"file:{SQLITE_DB}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError, PermissionError, OSError):
+        # DB locked by Kiro, corrupted, or permission denied
         return sessions
 
-    # V2 sessions (Dec 2025 - Mar 2026) — have timestamps and session IDs
     try:
-        rows = conn.execute(
-            "SELECT key, conversation_id, value, created_at, updated_at "
-            "FROM conversations_v2 ORDER BY updated_at DESC"
-        ).fetchall()
-        for cwd, conv_id, value, created_ms, updated_ms in rows:
-            try:
-                d = json.loads(value)
-                history = d.get("history", [])
-                title = _get_first_prompt_from_history(history)
-                created = datetime.fromtimestamp(created_ms / 1000).strftime("%Y-%m-%dT%H:%M:%S")
-                updated = datetime.fromtimestamp(updated_ms / 1000).strftime("%Y-%m-%dT%H:%M:%S")
-                msg_count = len(history)
-                duration_min = int((updated_ms - created_ms) / 1000 / 60)
-                sessions.append({
-                    "session_id": conv_id,
-                    "title": title,
-                    "cwd": cwd,
-                    "created_at": created,
-                    "updated_at": updated,
-                    "source": "sqlite_v2",
-                    "msg_count": msg_count,
-                    "duration_min": duration_min,
-                    "_history": history,
-                    "is_subagent": _is_sqlite_subagent(history),
-                    "parent_session_id": None,
-                })
-            except (json.JSONDecodeError, KeyError, ValueError):
-                pass
-    except sqlite3.OperationalError:
-        pass
+        # V2 sessions (Dec 2025 - Mar 2026) — have timestamps and session IDs
+        try:
+            rows = conn.execute(
+                "SELECT key, conversation_id, value, created_at, updated_at "
+                "FROM conversations_v2 ORDER BY updated_at DESC"
+            ).fetchall()
+            for cwd, conv_id, value, created_ms, updated_ms in rows:
+                try:
+                    d = json.loads(value)
+                    history = d.get("history", [])
+                    title = _get_first_prompt_from_history(history)
+                    # Handle None/0 timestamps gracefully
+                    try:
+                        created = datetime.fromtimestamp((created_ms or 0) / 1000).strftime("%Y-%m-%dT%H:%M:%S")
+                        updated = datetime.fromtimestamp((updated_ms or 0) / 1000).strftime("%Y-%m-%dT%H:%M:%S")
+                        duration_min = max(0, int(((updated_ms or 0) - (created_ms or 0)) / 1000 / 60))
+                    except (TypeError, ValueError, OSError):
+                        created = ""
+                        updated = ""
+                        duration_min = 0
+                    msg_count = len(history)
+                    sessions.append({
+                        "session_id": conv_id,
+                        "title": title,
+                        "cwd": cwd,
+                        "created_at": created,
+                        "updated_at": updated,
+                        "source": "sqlite_v2",
+                        "msg_count": msg_count,
+                        "duration_min": duration_min,
+                        "_history": history,
+                        "is_subagent": _is_sqlite_subagent(history),
+                        "parent_session_id": None,
+                    })
+                except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+                    pass
+        except sqlite3.OperationalError:
+            pass
 
-    # V1 sessions (Nov 2025 - Dec 2025) — keyed by directory, no timestamps
-    try:
-        rows = conn.execute("SELECT key, value FROM conversations").fetchall()
-        for cwd, value in rows:
-            try:
-                d = json.loads(value)
-                history = d.get("history", [])
-                title = _get_first_prompt_from_history(history)
-                conv_id = d.get("conversation_id", "")
-                sessions.append({
-                    "session_id": conv_id,
-                    "title": title,
-                    "cwd": cwd,
-                    "created_at": "",
-                    "updated_at": "",
-                    "source": "sqlite_v1",
-                    "msg_count": len(history),
-                    "duration_min": 0,
-                    "_history": history,
-                    "is_subagent": False,  # SQLite sessions predate subagent feature
-                    "parent_session_id": None,
-                })
-            except (json.JSONDecodeError, KeyError, ValueError):
-                pass
-    except sqlite3.OperationalError:
-        pass
+        # V1 sessions (Nov 2025 - Dec 2025) — keyed by directory, no timestamps
+        try:
+            rows = conn.execute("SELECT key, value FROM conversations").fetchall()
+            for cwd, value in rows:
+                try:
+                    d = json.loads(value)
+                    history = d.get("history", [])
+                    title = _get_first_prompt_from_history(history)
+                    conv_id = d.get("conversation_id", "")
+                    sessions.append({
+                        "session_id": conv_id,
+                        "title": title,
+                        "cwd": cwd,
+                        "created_at": "",
+                        "updated_at": "",
+                        "source": "sqlite_v1",
+                        "msg_count": len(history),
+                        "duration_min": 0,
+                        "_history": history,
+                        "is_subagent": False,  # SQLite sessions predate subagent feature
+                        "parent_session_id": None,
+                    })
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    pass
+        except sqlite3.OperationalError:
+            pass
+    finally:
+        conn.close()
 
-    conn.close()
     return sessions
 
 
 def _load_jsonl_sessions():
-    """Load sessions from ~/.kiro/sessions/cli/*.json (v3: current format)."""
+    """Load sessions from ~/.kiro/sessions/cli/*.json (v3: current format).
+    
+    Also loads .jsonl-only sessions (missing metadata file).
+    """
     sessions = []
     if not SESSIONS_DIR.exists():
         return sessions
 
+    seen_session_ids = set()
+    
+    # First pass: load sessions with .json metadata
     for json_file in SESSIONS_DIR.glob("*.json"):
         try:
             if json_file.stat().st_size > MAX_FILE_SIZE:
@@ -219,7 +237,7 @@ def _load_jsonl_sessions():
             created = meta.get("created_at") or ""
             updated = meta.get("updated_at") or ""
             # Count messages in JSONL — use fast byte search instead of JSON parsing
-            jsonl_path = str(json_file).replace(".json", ".jsonl")
+            jsonl_path = str(Path(json_file).with_suffix(".jsonl"))
             msg_count = 0
             jp = Path(jsonl_path)
             if jp.exists():
@@ -237,8 +255,11 @@ def _load_jsonl_sessions():
                     duration_min = int((u - c).total_seconds() / 60)
                 except (ValueError, TypeError):
                     pass
+            session_id = meta.get("session_id", "")
+            if session_id:
+                seen_session_ids.add(session_id)
             sessions.append({
-                "session_id": meta.get("session_id", ""),
+                "session_id": session_id,
                 "title": meta.get("title") or "(untitled)",
                 "cwd": meta.get("cwd") or "",
                 "created_at": created,
@@ -252,6 +273,42 @@ def _load_jsonl_sessions():
             })
         except (json.JSONDecodeError, KeyError, ValueError, OSError):
             pass
+
+    # Second pass: load .jsonl files without .json metadata
+    for jsonl_file in SESSIONS_DIR.glob("*.jsonl"):
+        json_file = jsonl_file.with_suffix(".json")
+        if json_file.exists():
+            continue  # Already processed above
+        try:
+            if jsonl_file.stat().st_size > MAX_FILE_SIZE:
+                continue
+            # Extract session_id from filename (UUID format)
+            session_id = jsonl_file.stem
+            if session_id in seen_session_ids:
+                continue
+            data = jsonl_file.read_bytes()
+            msg_count = data.count(b'"kind":"Prompt"') + data.count(b'"kind":"AssistantMessage"')
+            # Get file times as fallback
+            stat = jsonl_file.stat()
+            created = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%dT%H:%M:%S")
+            updated = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
+            duration_min = max(0, int((stat.st_mtime - stat.st_ctime) / 60))
+            sessions.append({
+                "session_id": session_id,
+                "title": "(untitled)",
+                "cwd": "",
+                "created_at": created,
+                "updated_at": updated,
+                "source": "jsonl",
+                "msg_count": msg_count,
+                "duration_min": max(0, duration_min),
+                "jsonl_path": str(jsonl_file),
+                "is_subagent": False,
+                "parent_session_id": None,
+            })
+        except (OSError, ValueError):
+            pass
+
     return sessions
 
 
@@ -261,22 +318,43 @@ def get_sessions():
     sqlite = _load_sqlite_sessions()
 
     # Deduplicate: if same session_id exists in both, prefer JSONL (newer format)
+    # For sessions without session_id, use cwd as fallback dedup key
     seen_ids = {s["session_id"] for s in jsonl if s["session_id"]}
+    seen_cwds = {s["cwd"] for s in jsonl if not s["session_id"] and s.get("cwd")}
+    
     for s in sqlite:
-        if s["session_id"] and s["session_id"] not in seen_ids:
-            jsonl.append(s)
-            seen_ids.add(s["session_id"])
+        if s["session_id"]:
+            if s["session_id"] not in seen_ids:
+                jsonl.append(s)
+                seen_ids.add(s["session_id"])
+        else:
+            # For sessions without ID, dedupe by cwd
+            cwd = s.get("cwd", "")
+            if cwd and cwd not in seen_cwds:
+                jsonl.append(s)
+                seen_cwds.add(cwd)
 
     # Sort: sessions with timestamps first (descending), then untimed ones at the end
     jsonl.sort(key=lambda s: s.get("updated_at") or s.get("created_at") or "0", reverse=True)
     return jsonl
 
 
-def extract_messages(session, limit=None):
-    """Extract conversation messages from any session format."""
+def extract_messages(session, limit=None, offset=0):
+    """Extract conversation messages from any session format.
+    
+    Args:
+        session: Session dict
+        limit: Max messages to return (None = all)
+        offset: Number of messages to skip from start
+    """
     # SQLite sessions carry _history inline
     if "_history" in session:
-        return _extract_messages_from_history(session["_history"], limit)
+        msgs = _extract_messages_from_history(session["_history"], limit=None if offset else limit)
+        if offset:
+            msgs = msgs[offset:]
+            if limit:
+                msgs = msgs[:limit]
+        return msgs
 
     # JSONL sessions read from file
     jsonl_path = session.get("jsonl_path", "")
@@ -289,6 +367,7 @@ def extract_messages(session, limit=None):
         return [{"role": "system", "text": "(File too large to preview)"}]
 
     messages = []
+    skipped = 0
     with open(path, encoding="utf-8") as f:
         for line in f:
             try:
@@ -304,6 +383,10 @@ def extract_messages(session, limit=None):
                         txt = block.get("data", "")
                         break
                 if txt:
+                    # Skip until we reach offset
+                    if skipped < offset:
+                        skipped += 1
+                        continue
                     role = "you" if kind == "Prompt" else "kiro"
                     messages.append({"role": role, "text": txt})
                     if limit and len(messages) >= limit:
@@ -459,6 +542,11 @@ class RenameScreen(ModalScreen):
         else:
             self.action_cancel()
 
+    @on(Input.Submitted, "#rename-input")
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in rename input."""
+        self.action_save()
+
     def action_save(self) -> None:
         new_title = self.query_one("#rename-input", Input).value.strip()
         self.dismiss(new_title if new_title else None)
@@ -483,10 +571,12 @@ class SessionItem(ListItem):
         except (ValueError, TypeError):
             ts = raw_ts
         title = (self.session.get("title") or "(untitled)")[:60]
+        # Escape Rich markup characters to prevent rendering issues
+        title = title.replace("[", "\\[").replace("]", "\\]")
         cwd = os.path.basename(self.session.get("cwd") or "")
         msgs = self.session.get("msg_count", 0)
         dur = self.session.get("duration_min", 0)
-        dur_str = f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m"
+        dur_str = "—" if dur == 0 else (f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m")
         yield Static(
             f"[bold]{title}[/bold]\n"
             f"[dim]{cwd}[/dim]  [dim italic]{ts}[/dim italic]  [dim cyan]{msgs} msgs[/dim cyan]  [dim green]{dur_str}[/dim green]",
@@ -552,15 +642,12 @@ class KiroHistory(App):
         Binding("f2", "rename_session", "Rename"),
         Binding("escape", "clear_or_quit", "Clear / Quit"),
         Binding("ctrl+c", "quit", "Quit"),
-        Binding("/", "focus_search", "Search"),
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
+        # Note: j/k/space/slash handled in on_key to avoid Input focus conflicts
         Binding("right", "focus_preview", "Preview", show=False),
         Binding("l", "focus_preview", "Preview", show=False),
         Binding("left", "focus_list", "List", show=False),
         Binding("h", "focus_list", "List", show=False),
         Binding("m", "load_more", "More", show=False),
-        Binding("space", "load_more", "More", show=False),
     ]
 
     def __init__(self):
@@ -577,7 +664,9 @@ class KiroHistory(App):
         self._preview_messages = []  # Messages loaded so far
         self._preview_all_loaded = False  # Whether all messages are loaded
         self._preview_batch_size = 30  # Messages per batch
+        self._preview_loading_session_id = None  # Guard for race condition
         self._sessions_loading = True  # Whether sessions are still loading
+        self._search_id = 0  # Counter for search debounce
 
     def get_system_commands(self, screen):
         """Add custom commands to the command palette."""
@@ -626,39 +715,91 @@ class KiroHistory(App):
         status = "shown" if self._show_untitled else "hidden"
         self.notify(f"Untitled sessions {status}")
 
+    # Table name allowlist for SQL injection prevention
+    _SQL_TABLES = {
+        "sqlite_v2": ("conversations_v2", "conversation_id"),
+        "sqlite_v1": ("conversations", "key"),  # V1 uses key-value structure
+    }
+
     def _update_session_title(self, session: dict, new_title: str) -> bool:
         """Update session title in the source file."""
         source = session.get("source")
         
         if source == "jsonl":
-            # Update JSONL metadata file
+            # Update JSONL metadata file (atomic write)
             jsonl_path = session.get("jsonl_path")
             if not jsonl_path:
                 return False
-            json_path = jsonl_path.replace(".jsonl", ".json")
+            json_path = str(Path(jsonl_path).with_suffix(".json"))
+            temp_path = None
             try:
                 with open(json_path, "r", encoding="utf-8") as f:
                     metadata = json.load(f)
                 metadata["title"] = new_title
-                with open(json_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, ensure_ascii=False, indent=2)
+                # Atomic write: write to temp file, then rename
+                import tempfile
+                dir_path = os.path.dirname(json_path)
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", suffix=".json",
+                    dir=dir_path, delete=False
+                ) as tf:
+                    json.dump(metadata, tf, ensure_ascii=False, indent=2)
+                    temp_path = tf.name
+                os.replace(temp_path, json_path)
                 return True
             except Exception:
+                # Clean up temp file if rename failed
+                try:
+                    if temp_path and os.path.exists(temp_path):
+                        os.unlink(temp_path)
+                except OSError:
+                    pass
                 return False
         
-        elif source in ("sqlite_v2", "sqlite_v1"):
+        elif source in self._SQL_TABLES:
             # Update SQLite database
             db_path = _sqlite_db_path()
             if not db_path or not os.path.exists(db_path):
                 return False
             try:
-                table = "conversations_v2" if source == "sqlite_v2" else "conversations"
+                table, id_col = self._SQL_TABLES[source]
                 with sqlite3.connect(db_path) as conn:
-                    conn.execute(
-                        f"UPDATE {table} SET title = ? WHERE session_id = ?",
-                        (new_title, session["session_id"])
-                    )
-                    conn.commit()
+                    if source == "sqlite_v1":
+                        # V1 uses key-value structure: key=cwd, value=JSON
+                        # Query by cwd, not session_id
+                        lookup_key = session.get("cwd", "")
+                        if not lookup_key:
+                            return False
+                        row = conn.execute(
+                            f"SELECT value FROM {table} WHERE {id_col} = ?",
+                            (lookup_key,)
+                        ).fetchone()
+                        if row:
+                            data = json.loads(row[0])
+                            data["title"] = new_title
+                            conn.execute(
+                                f"UPDATE {table} SET value = ? WHERE {id_col} = ?",
+                                (json.dumps(data), lookup_key)
+                            )
+                            conn.commit()
+                    else:
+                        # V2: update title in value JSON (same structure as V1)
+                        # conversations_v2 has: key(cwd), conversation_id, value(JSON), created_at, updated_at
+                        lookup_key = session.get("session_id", "")
+                        if not lookup_key:
+                            return False
+                        row = conn.execute(
+                            f"SELECT value FROM {table} WHERE {id_col} = ?",
+                            (lookup_key,)
+                        ).fetchone()
+                        if row:
+                            data = json.loads(row[0])
+                            data["title"] = new_title
+                            conn.execute(
+                                f"UPDATE {table} SET value = ? WHERE {id_col} = ?",
+                                (json.dumps(data), lookup_key)
+                            )
+                            conn.commit()
                 return True
             except Exception:
                 return False
@@ -686,7 +827,21 @@ class KiroHistory(App):
     @work(thread=True)
     def _load_sessions_async(self) -> None:
         """Load sessions in background thread."""
-        sessions = get_sessions()
+        try:
+            sessions = get_sessions()
+        except Exception as e:
+            self._sessions_loading = False
+            self.call_from_thread(
+                self.notify,
+                f"Failed to load sessions: {e}",
+                severity="error"
+            )
+            self.call_from_thread(
+                self.query_one("#status-bar", Static).update,
+                " Error loading sessions | Check permissions"
+            )
+            return
+            
         self.all_sessions = sessions
         self._sessions_loading = False
         # Apply filters and populate list
@@ -699,7 +854,8 @@ class KiroHistory(App):
         def apply_search():
             search = self.query_one("#search-input", Input)
             if search.value:
-                self._do_search(search.value)
+                self._search_id += 1
+                self._do_search(search.value, self._search_id)
         self.call_from_thread(apply_search)
 
     def _populate_list(self, sessions):
@@ -715,49 +871,94 @@ class KiroHistory(App):
         # Don't search while sessions are still loading
         if self._sessions_loading:
             return
-        self._do_search(event.value)
+        # Increment search ID to invalidate stale results
+        self._search_id += 1
+        self._do_search(event.value, self._search_id)
 
     def on_key(self, event) -> None:
         """Handle key events for navigation."""
-        # Search input: down/j moves to session list
         search_input = self.query_one("#search-input", Input)
-        if search_input.has_focus and event.key in ("down", "j"):
-            event.prevent_default()
-            event.stop()
-            self.query_one("#session-list", ListView).focus()
-            return
-
-        # Session list: up/k at first item moves to search input
         list_view = self.query_one("#session-list", ListView)
-        if list_view.has_focus and event.key in ("up", "k"):
-            if list_view.index == 0 or len(list_view.children) == 0:
+        preview = self.query_one("#preview", RichLog)
+
+        # Skip special key handling when Input has focus (allow normal typing)
+        if search_input.has_focus:
+            # Only handle down/j to move to session list
+            if event.key in ("down", "j"):
                 event.prevent_default()
                 event.stop()
-                search_input.focus()
+                list_view.focus()
+            return
+
+        # Session list navigation: j/k for up/down
+        if list_view.has_focus:
+            if event.key == "j":
+                event.prevent_default()
+                event.stop()
+                list_view.action_cursor_down()
+                return
+            if event.key == "k":
+                if list_view.index == 0 or len(list_view.children) == 0:
+                    event.prevent_default()
+                    event.stop()
+                    search_input.focus()
+                else:
+                    event.prevent_default()
+                    event.stop()
+                    list_view.action_cursor_up()
+                return
+            # space to load more (only in session list, not in ListView default toggle)
+            if event.key == "space":
+                event.prevent_default()
+                event.stop()
+                self.action_load_more()
                 return
 
         # Preview pane: left/h moves back to session list
-        preview = self.query_one("#preview", RichLog)
-        if preview.has_focus and event.key in ("left", "h"):
+        if preview.has_focus:
+            if event.key in ("left", "h"):
+                event.prevent_default()
+                event.stop()
+                list_view.focus()
+                return
+            # space to load more in preview pane too
+            if event.key == "space":
+                event.prevent_default()
+                event.stop()
+                self.action_load_more()
+                return
+
+        # / to focus search (only when not in Input)
+        if event.key == "slash":
             event.prevent_default()
             event.stop()
-            self.query_one("#session-list", ListView).focus()
+            search_input.focus()
             return
 
     @work(thread=True)
-    def _do_search(self, query: str) -> None:
+    def _do_search(self, query: str, search_id: int = 0) -> None:
         # Search within currently filtered base (respects non-interactive/untitled toggles)
         base = self._get_filtered_base()
         results = search_sessions(query, base)
-        self.filtered_sessions = results
-        self.call_from_thread(self._populate_list, results)
-        status_text = f" {len(results)}/{len(self.all_sessions)} sessions"
-        if query:
-            status_text += f" matching '{query}'"
-        status_text += " | Ctrl+R resume | / search"
-        self.call_from_thread(
-            self.query_one("#status-bar", Static).update, status_text
-        )
+        
+        # Check if this search is still current (not superseded by newer search)
+        if search_id and self._search_id != search_id:
+            return  # Stale result, discard
+        
+        # Update filtered_sessions on main thread to avoid race condition
+        def update_results():
+            # Double-check search_id on main thread
+            if search_id and self._search_id != search_id:
+                return
+            self.filtered_sessions = results
+            self._populate_list(results)
+            status_text = f" {len(results)}/{len(self.all_sessions)} sessions"
+            if query:
+                status_text += f" matching '{query}'"
+            status_text += " | Ctrl+R resume | / search"
+            self.query_one("#status-bar", Static).update(status_text)
+        
+        self.call_from_thread(update_results)
 
     # --- Preview ---
 
@@ -770,21 +971,30 @@ class KiroHistory(App):
             return
         session = event.item.session
         self.selected_session = session
+        self._preview_loading_session_id = session.get("session_id")
         self._load_preview(session)
 
     @work(thread=True)
     def _load_preview(self, session: dict) -> None:
+        # Guard: if another session was selected while loading, abort
+        session_id = session.get("session_id")
+        if self._preview_loading_session_id != session_id:
+            return
+
         preview = self.query_one("#preview", RichLog)
         self.call_from_thread(preview.clear)
 
         # Header
         title = session.get("title") or "(untitled)"
         cwd = session.get("cwd") or ""
+        # Escape Rich markup characters
+        title = title.replace("[", "\\[").replace("]", "\\]")
+        cwd = cwd.replace("[", "\\[").replace("]", "\\]")
         created = (session.get("created_at") or "")[:19].replace("T", " ")
         updated = (session.get("updated_at") or "")[:19].replace("T", " ")
         msgs = session.get("msg_count", 0)
         dur = session.get("duration_min", 0)
-        dur_str = f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m"
+        dur_str = "—" if dur == 0 else (f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m")
 
         header = (
             f"[bold]SESSION:[/bold] {title}\n"
@@ -795,25 +1005,42 @@ class KiroHistory(App):
             f"[bold]DURATION:[/bold] {dur_str}\n"
             f"[bold]ID:[/bold] {session.get('session_id', '')}\n"
         )
+        
+        # Recheck guard after expensive operations
+        if self._preview_loading_session_id != session_id:
+            return
+            
         self.call_from_thread(preview.write, Text.from_markup(header))
         self.call_from_thread(preview.write, Text("─" * 50))
         self.call_from_thread(preview.write, Text(""))
 
         # Lazy loading: extract only first batch initially
-        self._preview_messages = extract_messages(session, limit=self._preview_batch_size)
-        self._preview_all_loaded = len(self._preview_messages) < self._preview_batch_size
+        messages = extract_messages(session, limit=self._preview_batch_size)
+        all_loaded = len(messages) < self._preview_batch_size
 
-        if not self._preview_messages:
+        # Final guard before updating shared state
+        if self._preview_loading_session_id != session_id:
+            return
+        
+        # Update shared state on main thread to avoid race conditions
+        def update_preview_state():
+            if self._preview_loading_session_id != session_id:
+                return
+            self._preview_messages = messages
+            self._preview_all_loaded = all_loaded
+        self.call_from_thread(update_preview_state)
+
+        if not messages:
             self.call_from_thread(preview.write, Text("(no conversation data)"))
             return
 
         # Render first batch
-        self.call_from_thread(self._render_messages, self._preview_messages)
+        self.call_from_thread(self._render_messages, messages)
 
         # Show "load more" hint if there might be more messages
         total_msgs = session.get("msg_count", 0)
-        if not self._preview_all_loaded and total_msgs > len(self._preview_messages):
-            remaining = total_msgs - len(self._preview_messages)
+        if not all_loaded and total_msgs > len(messages):
+            remaining = total_msgs - len(messages)
             self.call_from_thread(preview.write, Text.from_markup(
                 f"[dim]─── ~{remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
             ))
@@ -844,10 +1071,13 @@ class KiroHistory(App):
         """Refresh session list with current filter settings."""
         filtered = self._get_filtered_base()
         self.filtered_sessions = filtered
-        self._populate_list(self.filtered_sessions)
         search = self.query_one("#search-input", Input)
         if search.value:
-            self._do_search(search.value)
+            # Apply search with proper search_id for debounce
+            self._search_id += 1
+            self._do_search(search.value, self._search_id)
+        else:
+            self._populate_list(self.filtered_sessions)
 
     def _get_filtered_base(self) -> list:
         """Return sessions after applying non-interactive and untitled filters."""
@@ -872,11 +1102,16 @@ class KiroHistory(App):
         Detection rules by source:
         - JSONL: parent_session_id present (true child subagent)
         - SQLite v2: is_subagent=True (1 Prompt + ToolUseResults pattern)
-        - Any: msg_count <= 1
+        - Any: msg_count == 0 (truly empty)
         
         Note: JSONL sessions have is_subagent based on session_created_reason,
         which is unreliable alone — normal sessions can also have it set.
         Only use it for SQLite v2 where it's computed from history content.
+        
+        msg_count semantics differ:
+        - JSONL: count of Prompt + AssistantMessage (1-turn = 2)
+        - SQLite: len(history) entries (1-turn = 1)
+        So we only filter truly empty sessions (msg_count == 0).
         """
         source = session.get("source", "")
 
@@ -889,8 +1124,8 @@ class KiroHistory(App):
             if session.get("is_subagent"):
                 return True
 
-        # Universal fallback: empty/minimal sessions
-        if session.get("msg_count", 0) <= 1:
+        # Universal fallback: truly empty sessions only
+        if session.get("msg_count", 0) == 0:
             return True
         return False
 
@@ -906,7 +1141,8 @@ class KiroHistory(App):
             if new_title:
                 if self._update_session_title(self.selected_session, new_title):
                     self.selected_session["title"] = new_title
-                    self.notify(f"Renamed to: {new_title[:50]}...")
+                    display = new_title[:50] + ("..." if len(new_title) > 50 else "")
+                    self.notify(f"Renamed to: {display}")
                     # Refresh the list to show new title
                     self._populate_list(self.filtered_sessions)
                 else:
@@ -916,6 +1152,10 @@ class KiroHistory(App):
 
     def action_resume(self) -> None:
         if not self.selected_session:
+            return
+        session_id = self.selected_session.get("session_id", "")
+        if not session_id:
+            self.notify("Cannot resume: session has no ID", severity="error")
             return
         cwd = self.selected_session.get("cwd", "")
         if not cwd or not os.path.isdir(cwd):
@@ -968,31 +1208,47 @@ class KiroHistory(App):
         if not session:
             return
 
-        # Calculate how many we need to skip
+        # Guard: if another session was selected, abort
+        session_id = session.get("session_id")
+        if self._preview_loading_session_id != session_id:
+            return
+
+        # Calculate how many we need to skip (offset)
         skip = len(self._preview_messages)
 
-        # Extract all messages (with no limit), then take the next batch
-        # This is needed because extract_messages doesn't support offset
-        all_msgs = extract_messages(session)
-        new_msgs = all_msgs[skip:skip + self._preview_batch_size]
+        # Use offset parameter to skip already-loaded messages
+        new_msgs = extract_messages(session, limit=self._preview_batch_size, offset=skip)
+
+        # Recheck guard after file I/O
+        if self._preview_loading_session_id != session_id:
+            return
 
         if not new_msgs:
-            self._preview_all_loaded = True
+            def mark_all_loaded():
+                self._preview_all_loaded = True
+            self.call_from_thread(mark_all_loaded)
             self.call_from_thread(self.notify, "All messages loaded", severity="information")
             return
 
-        self._preview_messages.extend(new_msgs)
-        self._preview_all_loaded = len(all_msgs) <= len(self._preview_messages)
+        # Check if this is the last batch
+        is_last_batch = len(new_msgs) < self._preview_batch_size
+        
+        # Update shared state on main thread
+        def update_state():
+            if self._preview_loading_session_id != session_id:
+                return
+            self._preview_messages.extend(new_msgs)
+            self._preview_all_loaded = is_last_batch
+        self.call_from_thread(update_state)
 
         # Render new messages
         self.call_from_thread(self._render_messages, new_msgs)
 
-        # Show hint if more remain
-        remaining = len(all_msgs) - len(self._preview_messages)
-        if remaining > 0:
+        # Show hint if more remain (based on batch size comparison)
+        if not is_last_batch:
             preview = self.query_one("#preview", RichLog)
             self.call_from_thread(preview.write, Text.from_markup(
-                f"[dim]─── {remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
+                f"[dim]─── More messages available. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
             ))
 
     def action_search_content(self) -> None:
@@ -1001,9 +1257,18 @@ class KiroHistory(App):
     def action_copy_conversation(self) -> None:
         if not self.selected_session:
             return
-        messages = extract_messages(self.selected_session)
+        # Run in background to avoid blocking UI
+        self._copy_conversation_async()
+
+    @work(thread=True)
+    def _copy_conversation_async(self) -> None:
+        """Copy conversation to clipboard in background thread."""
+        session = self.selected_session
+        if not session:
+            return
+        messages = extract_messages(session)
         if not messages:
-            self.notify("No messages to copy", severity="warning")
+            self.call_from_thread(self.notify, "No messages to copy", severity="warning")
             return
         text = ""
         for msg in messages:
@@ -1012,12 +1277,15 @@ class KiroHistory(App):
         try:
             if sys.platform == "win32":
                 process = subprocess.Popen(["clip"], stdin=subprocess.PIPE)
-                process.communicate(text.encode("utf-16-le"))
+                # clip expects UTF-16 LE with BOM for Unicode support
+                bom = b'\xff\xfe'
+                process.communicate(bom + text.encode("utf-16-le"))
             elif sys.platform == "darwin":
                 process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
                 process.communicate(text.encode("utf-8"))
             else:
                 # Linux: try xclip then xsel
+                process = None
                 for cmd in (["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
                     try:
                         process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
@@ -1025,12 +1293,16 @@ class KiroHistory(App):
                         break
                     except FileNotFoundError:
                         continue
-                else:
-                    self.notify("No clipboard tool found (install xclip or xsel)", severity="error")
+                if process is None:
+                    self.call_from_thread(self.notify, "No clipboard tool found (install xclip or xsel)", severity="error")
                     return
-            self.notify(f"Copied {len(messages)} messages to clipboard")
+            # Check return code
+            if process.returncode != 0:
+                self.call_from_thread(self.notify, "Clipboard copy failed", severity="error")
+                return
+            self.call_from_thread(self.notify, f"Copied {len(messages)} messages to clipboard")
         except FileNotFoundError:
-            self.notify("Clipboard tool not found", severity="error")
+            self.call_from_thread(self.notify, "Clipboard tool not found", severity="error")
 
 
 # --- Entry Point ---
@@ -1054,7 +1326,11 @@ def main():
         if sys.platform == "win32":
             subprocess.run(cmd, cwd=cwd)
         else:
-            os.execvp("kiro-cli", cmd)
+            try:
+                os.execvp("kiro-cli", cmd)
+            except FileNotFoundError:
+                print("ERROR: kiro-cli not found. Is it installed and in your PATH?", file=sys.stderr)
+                sys.exit(1)
 
     elif result and isinstance(result, tuple) and result[0] == "new":
         trust_all_tools = result[2] if len(result) > 2 else True
@@ -1065,7 +1341,11 @@ def main():
         if sys.platform == "win32":
             subprocess.run(cmd)
         else:
-            os.execvp("kiro-cli", cmd)
+            try:
+                os.execvp("kiro-cli", cmd)
+            except FileNotFoundError:
+                print("ERROR: kiro-cli not found. Is it installed and in your PATH?", file=sys.stderr)
+                sys.exit(1)
 
 
 if __name__ == "__main__":
