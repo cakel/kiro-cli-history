@@ -31,6 +31,8 @@ cd kiro-cli-history
 bash install.sh
 ```
 
+Installs to `~/.local/share/kiro-cli-history` and adds `~/.local/bin` to your PATH.
+
 ### Windows
 
 ```bat
