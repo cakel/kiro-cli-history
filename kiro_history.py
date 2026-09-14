@@ -1000,12 +1000,31 @@ class KiroHistory(App):
     def on_preview_search_changed(self, event: Input.Changed) -> None:
         query = event.value.strip()
         self._preview_search_query = query
-        self._run_preview_search(query)
+        # Don't search on every keystroke — wait for Enter
+        # Just update info bar to indicate search is pending
+        if query:
+            info = self.query_one("#preview-search-info", Static)
+            info.update(f" Type and press Enter to search for '{query}'")
+        else:
+            self._clear_search_highlights()
 
     @on(Input.Submitted, "#preview-search")
     def on_preview_search_submitted(self, event: Input.Submitted) -> None:
-        """Enter in preview search → jump to next match."""
-        self._preview_search_next()
+        """Enter in preview search → execute search."""
+        query = self._preview_search_query
+        if query:
+            self._run_preview_search(query)
+        else:
+            self._clear_search_highlights()
+
+    def _clear_search_highlights(self) -> None:
+        """Clear search state and re-render without highlights."""
+        self._preview_search_matches = []
+        self._preview_search_current = -1
+        self._update_search_info("", 0, -1)
+        # Only re-render if we had highlights before
+        if self._preview_search_query:
+            self._rerender_preview(highlight_query="")
 
     def _run_preview_search(self, query: str) -> None:
         """Find matching messages and re-render with highlights.
@@ -1132,8 +1151,11 @@ class KiroHistory(App):
         self.call_from_thread(do_search)
 
     def _preview_search_next(self) -> None:
-        """Jump to next match."""
+        """Jump to next match (scroll only, no re-render)."""
         if not self._preview_search_matches:
+            # No matches yet — maybe trigger search
+            if self._preview_search_query:
+                self._run_preview_search(self._preview_search_query)
             return
         n = len(self._preview_search_matches)
         self._preview_search_current = (self._preview_search_current + 1) % n
@@ -1143,7 +1165,7 @@ class KiroHistory(App):
         self._scroll_to_match(idx)
 
     def _preview_search_prev(self) -> None:
-        """Jump to previous match."""
+        """Jump to previous match (scroll only, no re-render)."""
         if not self._preview_search_matches:
             return
         n = len(self._preview_search_matches)
