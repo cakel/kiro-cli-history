@@ -8,9 +8,9 @@ VENV_DIR="$INSTALL_DIR/venv"
 echo "Uninstalling kiro-cli-history..."
 
 # Kill any running kiro-cli-history processes
-if pgrep -f "kiro-cli-history.*python" > /dev/null 2>&1; then
+if pgrep -f "python.*kiro_history\.py" > /dev/null 2>&1; then
     echo "Stopping running kiro-cli-history processes..."
-    pkill -f "kiro-cli-history.*python" 2>/dev/null || true
+    pkill -f "python.*kiro_history\.py" 2>/dev/null || true
     sleep 0.3
 fi
 

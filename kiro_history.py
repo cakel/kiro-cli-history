@@ -156,10 +156,16 @@ def _load_sqlite_sessions():
                     d = json.loads(value)
                     history = d.get("history", [])
                     title = _get_first_prompt_from_history(history)
-                    created = datetime.fromtimestamp(created_ms / 1000).strftime("%Y-%m-%dT%H:%M:%S")
-                    updated = datetime.fromtimestamp(updated_ms / 1000).strftime("%Y-%m-%dT%H:%M:%S")
+                    # Handle None/0 timestamps gracefully
+                    try:
+                        created = datetime.fromtimestamp((created_ms or 0) / 1000).strftime("%Y-%m-%dT%H:%M:%S")
+                        updated = datetime.fromtimestamp((updated_ms or 0) / 1000).strftime("%Y-%m-%dT%H:%M:%S")
+                        duration_min = max(0, int(((updated_ms or 0) - (created_ms or 0)) / 1000 / 60))
+                    except (TypeError, ValueError, OSError):
+                        created = ""
+                        updated = ""
+                        duration_min = 0
                     msg_count = len(history)
-                    duration_min = int((updated_ms - created_ms) / 1000 / 60)
                     sessions.append({
                         "session_id": conv_id,
                         "title": title,
@@ -173,7 +179,7 @@ def _load_sqlite_sessions():
                         "is_subagent": _is_sqlite_subagent(history),
                         "parent_session_id": None,
                     })
-                except (json.JSONDecodeError, KeyError, ValueError):
+                except (json.JSONDecodeError, KeyError, ValueError, TypeError):
                     pass
         except sqlite3.OperationalError:
             pass
@@ -231,7 +237,7 @@ def _load_jsonl_sessions():
             created = meta.get("created_at") or ""
             updated = meta.get("updated_at") or ""
             # Count messages in JSONL — use fast byte search instead of JSON parsing
-            jsonl_path = str(json_file).replace(".json", ".jsonl")
+            jsonl_path = str(Path(json_file).with_suffix(".jsonl"))
             msg_count = 0
             jp = Path(jsonl_path)
             if jp.exists():
@@ -724,7 +730,7 @@ class KiroHistory(App):
             jsonl_path = session.get("jsonl_path")
             if not jsonl_path:
                 return False
-            json_path = jsonl_path.replace(".jsonl", ".json")
+            json_path = str(Path(jsonl_path).with_suffix(".json"))
             temp_path = None
             try:
                 with open(json_path, "r", encoding="utf-8") as f:
@@ -1320,7 +1326,11 @@ def main():
         if sys.platform == "win32":
             subprocess.run(cmd, cwd=cwd)
         else:
-            os.execvp("kiro-cli", cmd)
+            try:
+                os.execvp("kiro-cli", cmd)
+            except FileNotFoundError:
+                print("ERROR: kiro-cli not found. Is it installed and in your PATH?", file=sys.stderr)
+                sys.exit(1)
 
     elif result and isinstance(result, tuple) and result[0] == "new":
         trust_all_tools = result[2] if len(result) > 2 else True
@@ -1331,7 +1341,11 @@ def main():
         if sys.platform == "win32":
             subprocess.run(cmd)
         else:
-            os.execvp("kiro-cli", cmd)
+            try:
+                os.execvp("kiro-cli", cmd)
+            except FileNotFoundError:
+                print("ERROR: kiro-cli not found. Is it installed and in your PATH?", file=sys.stderr)
+                sys.exit(1)
 
 
 if __name__ == "__main__":

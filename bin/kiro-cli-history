@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""kiro-cli-history — Search and resume Kiro CLI conversations."""
+"""kiro-cli-history — Search and resume Kiro CLI conversations.
+
+NOTE: This file is for development use only (running from the repo root).
+When installed via install.sh or install.ps1, a separate wrapper script
+is generated in ~/.local/bin/ (Linux/Mac) or C:\ProgramData\kiro-cli-history\bin\
+(Windows) that uses the venv Python. This file does NOT use the venv.
+"""
 
 import os
 import sys

@@ -10,6 +10,8 @@ VENV_DIR="$INSTALL_DIR/venv"
 
 # Cleanup function for rollback on failure
 cleanup_on_error() {
+    # Disable trap inside handler to prevent recursion
+    trap - ERR
     echo ""
     echo "ERROR: Installation failed. Cleaning up..."
     rm -rf "$INSTALL_DIR" 2>/dev/null || true
@@ -40,7 +42,8 @@ mkdir -p "$BIN_DIR"
 if [ -d "$VENV_DIR" ]; then
     echo "Removing existing virtual environment..."
     # Kill any running kiro-cli-history processes holding the venv
-    pkill -f "kiro-cli-history.*python" 2>/dev/null || true
+    # Use precise pattern matching to avoid killing unrelated processes
+    pkill -f "python.*kiro_history\.py" 2>/dev/null || true
     sleep 0.3
     rm -rf "$VENV_DIR"
 fi
@@ -49,7 +52,11 @@ fi
 if command -v uv &>/dev/null; then
     echo "Using uv (fast mode)..."
     uv venv "$VENV_DIR" || { echo "ERROR: uv venv creation failed"; exit 1; }
-    uv pip install textual --python "$VENV_DIR/bin/python" || { echo "ERROR: uv pip install failed"; exit 1; }
+    # Use venv python directly — avoids --python flag version compatibility issues
+    "$VENV_DIR/bin/python" -m pip install textual --quiet || {
+        # Fall back to uv pip if pip not available in venv
+        uv pip install --python "$VENV_DIR" textual || { echo "ERROR: textual install failed"; exit 1; }
+    }
 else
     echo "Using standard venv..."
     python3 -m venv "$VENV_DIR" || { echo "ERROR: python3 venv creation failed"; exit 1; }
@@ -61,12 +68,19 @@ fi
 echo "Installing to $INSTALL_DIR..."
 cp "$SCRIPT_DIR/kiro_history.py" "$INSTALL_DIR/kiro_history.py" || { echo "ERROR: Failed to copy kiro_history.py"; exit 1; }
 
-# Create wrapper script that uses venv python
-cat > "$BIN_DIR/kiro-cli-history" << EOF
+# Create wrapper script atomically (tmp + mv to avoid partial writes)
+WRAPPER_TMP="$(mktemp "$BIN_DIR/.kiro-cli-history.XXXXXX")"
+cat > "$WRAPPER_TMP" << 'WRAPPER_EOF'
 #!/bin/bash
-exec "$VENV_DIR/bin/python" "$INSTALL_DIR/kiro_history.py" "\$@"
-EOF
-chmod +x "$BIN_DIR/kiro-cli-history"
+VENV_PYTHON="VENV_PYTHON_PLACEHOLDER"
+MAIN_SCRIPT="MAIN_SCRIPT_PLACEHOLDER"
+exec "$VENV_PYTHON" "$MAIN_SCRIPT" "$@"
+WRAPPER_EOF
+# Substitute actual paths after heredoc (avoids quote escaping in heredoc)
+sed -i "s|VENV_PYTHON_PLACEHOLDER|${VENV_DIR}/bin/python|g" "$WRAPPER_TMP"
+sed -i "s|MAIN_SCRIPT_PLACEHOLDER|${INSTALL_DIR}/kiro_history.py|g" "$WRAPPER_TMP"
+chmod +x "$WRAPPER_TMP"
+mv "$WRAPPER_TMP" "$BIN_DIR/kiro-cli-history"
 
 # Disable trap after successful installation
 trap - ERR
