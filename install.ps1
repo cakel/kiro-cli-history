@@ -91,12 +91,20 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
     Write-OK "Virtual environment created with venv"
 }
 
-# -- 4. Copy main script and inject git hash --
+# -- 4. Copy main scripts and inject git hash --
 $srcScript = Join-Path $SCRIPT_DIR "kiro_history.py"
 if (-not (Test-Path $srcScript)) {
     Write-Err "kiro_history.py not found in $SCRIPT_DIR"
 }
 Copy-Item -LiteralPath $srcScript -Destination (Join-Path $installDir "kiro_history.py") -Force
+
+# Copy session_store.py (data/search layer required by kiro_history.py)
+$srcStore = Join-Path $SCRIPT_DIR "session_store.py"
+if (-not (Test-Path $srcStore)) {
+    Write-Err "session_store.py not found in $SCRIPT_DIR"
+}
+Copy-Item -LiteralPath $srcStore -Destination (Join-Path $installDir "session_store.py") -Force
+Write-OK "Copied session_store.py -> $installDir"
 
 # Inject current git hash into installed script
 $destScript = Join-Path $installDir "kiro_history.py"

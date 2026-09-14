@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from kiro_history import _sqlite_db_path, SESSIONS_DIR
+from session_store import _sqlite_db_path, SESSIONS_DIR
 
 
 def test_sqlite_db_path():

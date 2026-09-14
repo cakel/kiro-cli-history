@@ -13,11 +13,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from kiro_history import (
+    extract_messages,
+)
+from session_store import (
     _fuzzy_match,
     _load_jsonl_sessions,
-    extract_messages,
     SESSIONS_DIR,
 )
+import session_store as ss
 import kiro_history as kh
 
 
@@ -80,17 +83,17 @@ def test_load_jsonl_sessions_korean():
             f.write("{}\n")  # empty line
 
         # Patch SESSIONS_DIR temporarily
-        orig_dir = kh.SESSIONS_DIR
-        kh.SESSIONS_DIR = Path(tmpdir)
+        orig_dir = ss.SESSIONS_DIR
+        ss.SESSIONS_DIR = Path(tmpdir)
         try:
-            sessions = kh._load_jsonl_sessions()
+            sessions = ss._load_jsonl_sessions()
             assert len(sessions) == 1, f"Expected 1 session, got {len(sessions)}"
             s = sessions[0]
             assert s["title"] == "한글 세션 제목", f"Title corrupted: {s['title']!r}"
             assert s["cwd"] == "D:\\Work\\내프로젝트", f"CWD corrupted: {s['cwd']!r}"
             print("[OK] test_load_jsonl_sessions_korean")
         finally:
-            kh.SESSIONS_DIR = orig_dir
+            ss.SESSIONS_DIR = orig_dir
     finally:
         shutil.rmtree(tmpdir)
 

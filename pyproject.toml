@@ -18,3 +18,8 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+# integration/ is excluded from the default run; use -m integration to include
+norecursedirs = ["__pycache__", ".pytest_cache", "integration"]
+markers = [
+    "integration: tests that require real ~/.kiro session data (slow)",
+]

@@ -67,6 +67,7 @@ fi
 # Copy files
 echo "Installing to $INSTALL_DIR..."
 cp "$SCRIPT_DIR/kiro_history.py" "$INSTALL_DIR/kiro_history.py" || { echo "ERROR: Failed to copy kiro_history.py"; exit 1; }
+cp "$SCRIPT_DIR/session_store.py" "$INSTALL_DIR/session_store.py" || { echo "ERROR: Failed to copy session_store.py"; exit 1; }
 
 # Inject current git hash into installed script
 GIT_HASH=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || true)
