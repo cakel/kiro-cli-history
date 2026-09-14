@@ -1108,6 +1108,7 @@ class KiroHistory(App):
         self._preview_search_executed = query  # Mark this query as searched
         self._preview_search_matches = matches
         self._preview_search_current = 0 if matches else -1
+        self.notify(f"Search: {len(matches)} matches in {len(self._preview_messages)} msgs", timeout=3)
         self._rerender_preview(highlight_query=query)
         self._update_search_info(query, len(matches),
                                   self._preview_search_current)
