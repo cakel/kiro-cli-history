@@ -911,7 +911,7 @@ class KiroHistory(App):
             self._preview_all_loaded = is_last_batch
             # Re-run preview search to include newly loaded messages
             if self._preview_search_active and self._preview_search_query:
-                self._run_preview_search(self._preview_search_query)
+                self._execute_preview_search(self._preview_search_query)
         self.call_from_thread(update_state)
 
         # Render new messages
@@ -976,7 +976,12 @@ class KiroHistory(App):
         self._preview_search_next()
 
     def _run_preview_search(self, query: str) -> None:
-        """Find matching messages and re-render with highlights."""
+        """Find matching messages and re-render with highlights.
+        
+        If not all messages are loaded yet, loads them first (in background),
+        then runs the search. This ensures preview search covers the entire
+        conversation, not just the first batch.
+        """
         if not query:
             self._preview_search_matches = []
             self._preview_search_current = -1
@@ -984,6 +989,16 @@ class KiroHistory(App):
             self._update_search_info(query, 0, -1)
             return
 
+        # If not all messages loaded, load them first then search
+        if not self._preview_all_loaded:
+            self._update_search_info(query, -1, -1)  # -1 signals "loading"
+            self._load_all_for_search(query)
+            return
+
+        self._execute_preview_search(query)
+
+    def _execute_preview_search(self, query: str) -> None:
+        """Actually perform the search (called after all messages are loaded)."""
         q = query.lower()
         matches = [
             i for i, msg in enumerate(self._preview_messages)
@@ -997,6 +1012,50 @@ class KiroHistory(App):
         # Scroll to first match
         if matches:
             self._scroll_to_match(matches[0])
+
+    @work(thread=True)
+    def _load_all_for_search(self, query: str) -> None:
+        """Load all remaining messages, then execute search."""
+        session = self.selected_session
+        if not session:
+            return
+        session_id = session.get("session_id")
+        if self._preview_loading_session_id != session_id:
+            return
+
+        # Load all remaining messages
+        while not self._preview_all_loaded:
+            skip = len(self._preview_messages)
+            new_msgs = extract_messages(session, limit=self._preview_batch_size, offset=skip)
+            
+            # Guard check after I/O
+            if self._preview_loading_session_id != session_id:
+                return
+            
+            if not new_msgs:
+                self._preview_all_loaded = True
+                break
+            
+            # Update on main thread
+            is_last = len(new_msgs) < self._preview_batch_size
+            def update(msgs=new_msgs, last=is_last):
+                if self._preview_loading_session_id != session_id:
+                    return
+                self._preview_messages.extend(msgs)
+                self._preview_all_loaded = last
+            self.call_from_thread(update)
+            
+            if is_last:
+                break
+
+        # Now execute search on main thread
+        def do_search():
+            if self._preview_loading_session_id != session_id:
+                return
+            # Only search if query hasn't changed
+            if self._preview_search_query == query:
+                self._execute_preview_search(query)
+        self.call_from_thread(do_search)
 
     def _preview_search_next(self) -> None:
         """Jump to next match."""
@@ -1024,7 +1083,14 @@ class KiroHistory(App):
         info = self.query_one("#preview-search-info", Static)
         if not query:
             info.update("")
-        elif total == 0:
+            return
+        
+        # total == -1 means "loading all messages"
+        if total == -1:
+            info.update(f" Loading all messages to search for '{query}'...")
+            return
+        
+        if total == 0:
             info.update(f" No matches for '{query}' | Esc to close")
         else:
             info.update(
