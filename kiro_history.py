@@ -1205,6 +1205,16 @@ class KiroHistory(App):
 
         q = highlight_query.lower() if highlight_query else ""
         match_indices = set(self._preview_search_matches)
+        current_match_idx = (self._preview_search_matches[self._preview_search_current]
+                             if self._preview_search_current >= 0 else -1)
+
+        # Get theme colors for highlighting
+        theme = self.current_theme
+        # Line background: use a muted version of primary/accent
+        # Word highlight: use accent color (more visible)
+        line_bg_color = theme.primary if theme else "#004578"
+        word_bg_color = theme.accent if theme else "#ffa62b"
+        current_line_bg = theme.accent if theme else "#ffa62b"  # current match line
 
         for i, msg in enumerate(self._preview_messages):
             role = msg["role"]
@@ -1215,15 +1225,26 @@ class KiroHistory(App):
             preview.write(label)
 
             if q and i in match_indices:
-                # Render plain text with highlight spans
+                # Matching message: line background + word highlight
                 rendered = RichText(txt)
+                
+                # Apply line background (different for current vs other matches)
+                if i == current_match_idx:
+                    # Current match: brighter background
+                    rendered.stylize(f"on {current_line_bg}")
+                else:
+                    # Other matches: subtle background
+                    rendered.stylize(f"on {line_bg_color}")
+                
+                # Apply word highlight (bold + contrasting color)
                 lower_txt = txt.lower()
                 start = 0
                 while True:
                     pos = lower_txt.find(q, start)
                     if pos == -1:
                         break
-                    rendered.stylize("bold reverse yellow", pos, pos + len(q))
+                    # Word: bold with bright background for contrast
+                    rendered.stylize("bold reverse", pos, pos + len(q))
                     start = pos + len(q)
                 preview.write(rendered)
             elif role == "kiro":
