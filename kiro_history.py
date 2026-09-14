@@ -218,19 +218,16 @@ def _load_jsonl_sessions():
                 meta = json.load(f)
             created = meta.get("created_at") or ""
             updated = meta.get("updated_at") or ""
-            # Count messages in JSONL
+            # Count messages in JSONL — use fast byte search instead of JSON parsing
             jsonl_path = str(json_file).replace(".json", ".jsonl")
             msg_count = 0
             jp = Path(jsonl_path)
             if jp.exists():
-                with open(jp, encoding="utf-8") as jf:
-                    for line in jf:
-                        try:
-                            ld = json.loads(line)
-                            if ld.get("kind") in ("Prompt", "AssistantMessage"):
-                                msg_count += 1
-                        except (json.JSONDecodeError, ValueError):
-                            pass
+                try:
+                    data = jp.read_bytes()
+                    msg_count = data.count(b'"Prompt"') + data.count(b'"AssistantMessage"')
+                except OSError:
+                    pass
             # Compute duration
             duration_min = 0
             if created and updated:
