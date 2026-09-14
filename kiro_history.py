@@ -1309,7 +1309,8 @@ class KiroHistory(App):
         preview = self.query_one("#preview", RichLog)
         # Header is roughly 8 lines, each message ~3 lines average
         estimated_line = 8 + msg_index * 3
-        preview.scroll_to(y=estimated_line, animate=False)
+        # Delay scroll to ensure RichLog has rendered the content
+        self.call_later(lambda: preview.scroll_to(y=estimated_line, animate=False))
 
     def action_copy_conversation(self) -> None:
         if not self.selected_session:
