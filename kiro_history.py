@@ -1106,12 +1106,25 @@ class KiroHistory(App):
 
         self._execute_preview_search(query)
 
+    def _normalize_for_search(self, text: str) -> str:
+        """Normalize text for search by removing markdown formatting."""
+        import re
+        # Remove backticks (code formatting)
+        text = text.replace("`", "")
+        # Remove bold/italic markers: **, *, __, _
+        # But preserve underscores in identifiers (only remove when used as formatting)
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)  # **bold**
+        text = re.sub(r'\*([^*]+)\*', r'\1', text)      # *italic*
+        text = re.sub(r'__([^_]+)__', r'\1', text)      # __bold__
+        text = re.sub(r'(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])', r'\1', text)  # _italic_ (not in identifiers)
+        return text.lower()
+
     def _execute_preview_search(self, query: str) -> None:
         """Actually perform the search (called after all messages are loaded)."""
-        q = query.lower()
+        q = self._normalize_for_search(query)
         matches = [
             i for i, msg in enumerate(self._preview_messages)
-            if q in msg.get("text", "").lower()
+            if q in self._normalize_for_search(msg.get("text", ""))
         ]
         self._preview_search_executed = query  # Mark this query as searched
         self._preview_search_matches = matches
