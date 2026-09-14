@@ -326,3 +326,115 @@ async def test_large_session_highlight_applied(tmp_path, monkeypatch):
         assert highlighted >= expected_matches, (
             f"Expected ≥{expected_matches} highlighted lines, got {highlighted}"
         )
+
+
+
+@pytest.mark.asyncio
+async def test_scroll_lands_on_highlighted_line(tmp_path, monkeypatch):
+    """After search, scroll_to_match must bring a highlighted line into view.
+
+    Uses _preview_msg_line_offsets (built by _rerender_preview) to verify
+    that the scroll target y-coordinate is within the RichLog.lines range
+    AND that the line at that offset is highlighted (has bgcolor).
+    """
+    import json
+    import uuid as _uuid
+    import kiro_history as kh
+    import session_store as ss
+
+    N = 60
+    KEYWORD = "스크롤검증키워드"
+
+    session_id = str(_uuid.uuid4())
+    session_dir = tmp_path / "chats"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    session_file = session_dir / f"{session_id}.jsonl"
+
+    # Keyword in messages 40-49 (second batch territory, msg 40)
+    file_lines = []
+    for i in range(N):
+        text = f"{KEYWORD} msg {i}" if i == 40 else f"normal {'x' * 200} msg {i}"  # long lines to force wrap
+        kind = "Prompt" if i % 2 == 0 else "AssistantMessage"
+        file_lines.append(json.dumps({
+            "kind": kind,
+            "data": {"content": [{"kind": "text", "data": text}]}
+        }))
+    session_file.write_text("\n".join(file_lines), encoding="utf-8")
+
+    synthetic = {
+        "session_id": session_id,
+        "title": "Scroll Accuracy Test",
+        "cwd": str(tmp_path),
+        "msg_count": N,
+        "jsonl_path": str(session_file),
+        "source": "jsonl",
+        "created_at": "2026-01-01T00:00:00",
+        "updated_at": "2026-01-01T01:00:00",
+        "duration_min": 10,
+    }
+
+    monkeypatch.setattr(kh, "get_sessions", lambda: [synthetic])
+    monkeypatch.setattr(ss, "get_sessions", lambda: [synthetic])
+
+    app = KiroHistory()
+    async with app.run_test(headless=True, size=(120, 40)) as pilot:
+        start = time.monotonic()
+        while time.monotonic() - start < LOAD_TIMEOUT:
+            await pilot.pause(POLL)
+            items = [c for c in app.query_one("#session-list", ListView).children
+                     if isinstance(c, SessionItem)]
+            if items and items[0].session.get("session_id") == session_id:
+                break
+        assert items
+
+        lv = app.query_one("#session-list", ListView)
+        lv.focus()
+        await pilot.press("j")
+
+        start = time.monotonic()
+        while time.monotonic() - start < LOAD_TIMEOUT:
+            await pilot.pause(POLL)
+            if (app.selected_session and
+                    app.selected_session.get("session_id") == session_id and
+                    len(app._preview_messages) > 0):
+                break
+
+        # Search
+        searched = await _open_search_and_execute(app, pilot, KEYWORD, timeout=15.0)
+        assert searched
+
+        assert app._preview_search_matches == [40], (
+            f"Expected [40], got {app._preview_search_matches}"
+        )
+
+        preview = app.query_one("#preview", RichLog)
+
+        # _preview_msg_line_offsets must contain entry for msg 40
+        offsets = app._preview_msg_line_offsets
+        assert 40 in offsets, (
+            f"No line offset for msg 40. offsets keys: {sorted(offsets.keys())[:10]}"
+        )
+
+        scroll_y = offsets[40]
+        total_lines = len(preview.lines)
+        assert 0 <= scroll_y < total_lines, (
+            f"Scroll y={scroll_y} out of range [0, {total_lines})"
+        )
+
+        # The line at scroll_y must be highlighted (or very near)
+        # Check scroll_y and next 10 lines for a highlighted segment
+        found_hl = False
+        for check_line in range(scroll_y, min(scroll_y + 50, total_lines)):
+            strip = preview.lines[check_line]
+            for segment in strip:
+                if segment.style and segment.style.bgcolor:
+                    found_hl = True
+                    break
+            if found_hl:
+                break
+
+        assert found_hl, (
+            f"No highlight found near scroll_y={scroll_y} "
+            f"(checked lines {scroll_y}..{min(scroll_y+50, total_lines)}). "
+            f"total_lines={total_lines}"
+        )

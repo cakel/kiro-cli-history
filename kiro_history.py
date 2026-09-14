@@ -311,6 +311,7 @@ class KiroHistory(App):
         self._preview_search_executed = ""   # Query that was actually searched (results valid for this)
         self._preview_search_matches: list[int] = []  # Indices into _preview_messages
         self._preview_search_current = -1   # Current match index (-1 = no selection)
+        self._preview_msg_line_offsets: dict[int, int] = {}  # msg_index → RichLog line number
 
     def get_system_commands(self, screen):
         """Add custom commands to the command palette."""
@@ -1283,9 +1284,14 @@ class KiroHistory(App):
         theme = self.current_theme
         highlight_bg = theme.accent if theme else "#ffa62b"
 
+        # Track line offsets for accurate _scroll_to_match
+        msg_line_offsets: dict[int, int] = {}
+
         for i, msg in enumerate(self._preview_messages):
             role = msg["role"]
             txt  = msg["text"]
+            # Record line offset before writing this message
+            msg_line_offsets[i] = len(preview.lines)
             label = (RichText.from_markup("[bold cyan][YOU]:[/bold cyan]")
                      if role == "you"
                      else RichText.from_markup("[bold green][KIRO]:[/bold green]"))
@@ -1325,6 +1331,9 @@ class KiroHistory(App):
 
             preview.write(RichText(""))
 
+        # Store line offsets for accurate scroll-to-match
+        self._preview_msg_line_offsets = msg_line_offsets
+
         if not self._preview_all_loaded:
             total = session.get("msg_count", 0)
             remaining = total - len(self._preview_messages)
@@ -1335,18 +1344,28 @@ class KiroHistory(App):
                 ))
 
     def _scroll_to_match(self, msg_index: int) -> None:
-        """Scroll preview so the matched message is visible."""
+        """Scroll preview so the matched message is visible.
+
+        Uses _preview_msg_line_offsets built during _rerender_preview for
+        accurate positioning even with word-wrap.
+        Falls back to scanning RichLog.lines for the first highlight.
+        """
         preview = self.query_one("#preview", RichLog)
-        # Count actual lines up to msg_index:
-        # Header = 9 lines (7 fields + separator + blank)
-        line = 9
-        for i, msg in enumerate(self._preview_messages):
-            if i >= msg_index:
-                break
-            # Each message = 1 label line + content lines + 1 blank line
-            content_lines = msg.get("text", "").count("\n") + 1
-            line += 1 + content_lines + 1
-        self.call_later(lambda ln=line: preview.scroll_to(y=ln, animate=False))
+
+        def do_scroll():
+            # Primary: use pre-computed line offsets from _rerender_preview
+            offsets = getattr(self, '_preview_msg_line_offsets', {})
+            if msg_index in offsets:
+                preview.scroll_to(y=offsets[msg_index], animate=False)
+                return
+            # Fallback: scan RichLog.lines for first highlighted segment
+            for line_num, strip in enumerate(preview.lines):
+                for segment in strip:
+                    if segment.style and segment.style.bgcolor:
+                        preview.scroll_to(y=line_num, animate=False)
+                        return
+
+        self.call_later(do_scroll)
 
     def action_copy_conversation(self) -> None:
         if not self.selected_session:
