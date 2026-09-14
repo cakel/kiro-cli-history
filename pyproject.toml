@@ -2,7 +2,7 @@
 name = "kiro-cli-history"
 version = "0.1.0"
 description = "Terminal UI for browsing Kiro CLI conversation history"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "textual>=0.40.0",
 ]
