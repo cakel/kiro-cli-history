@@ -14,7 +14,8 @@ function Write-OK   { param($m) Write-Host "[OK]    $m" -ForegroundColor Green }
 function Write-Info { param($m) Write-Host "[INFO]  $m" -ForegroundColor Cyan }
 function Write-Warn { param($m) Write-Host "[WARN]  $m" -ForegroundColor Yellow }
 
-$installDir = Join-Path $env:LOCALAPPDATA "kiro-cli-history"
+# Use fixed path matching install.ps1
+$installDir = "C:\ProgramData\kiro-cli-history"
 $binDir     = Join-Path $installDir "bin"
 $venvDir    = Join-Path $installDir "venv"
 $batPath    = Join-Path $binDir "kiro-cli-history.bat"

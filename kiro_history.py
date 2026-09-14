@@ -333,11 +333,22 @@ def get_sessions():
     return jsonl
 
 
-def extract_messages(session, limit=None):
-    """Extract conversation messages from any session format."""
+def extract_messages(session, limit=None, offset=0):
+    """Extract conversation messages from any session format.
+    
+    Args:
+        session: Session dict
+        limit: Max messages to return (None = all)
+        offset: Number of messages to skip from start
+    """
     # SQLite sessions carry _history inline
     if "_history" in session:
-        return _extract_messages_from_history(session["_history"], limit)
+        msgs = _extract_messages_from_history(session["_history"], limit=None if offset else limit)
+        if offset:
+            msgs = msgs[offset:]
+            if limit:
+                msgs = msgs[:limit]
+        return msgs
 
     # JSONL sessions read from file
     jsonl_path = session.get("jsonl_path", "")
@@ -350,6 +361,7 @@ def extract_messages(session, limit=None):
         return [{"role": "system", "text": "(File too large to preview)"}]
 
     messages = []
+    skipped = 0
     with open(path, encoding="utf-8") as f:
         for line in f:
             try:
@@ -365,6 +377,10 @@ def extract_messages(session, limit=None):
                         txt = block.get("data", "")
                         break
                 if txt:
+                    # Skip until we reach offset
+                    if skipped < offset:
+                        skipped += 1
+                        continue
                     role = "you" if kind == "Prompt" else "kiro"
                     messages.append({"role": role, "text": txt})
                     if limit and len(messages) >= limit:
@@ -965,6 +981,9 @@ class KiroHistory(App):
         # Header
         title = session.get("title") or "(untitled)"
         cwd = session.get("cwd") or ""
+        # Escape Rich markup characters
+        title = title.replace("[", "\\[").replace("]", "\\]")
+        cwd = cwd.replace("[", "\\[").replace("]", "\\]")
         created = (session.get("created_at") or "")[:19].replace("T", " ")
         updated = (session.get("updated_at") or "")[:19].replace("T", " ")
         msgs = session.get("msg_count", 0)
@@ -1188,13 +1207,11 @@ class KiroHistory(App):
         if self._preview_loading_session_id != session_id:
             return
 
-        # Calculate how many we need to skip
+        # Calculate how many we need to skip (offset)
         skip = len(self._preview_messages)
 
-        # Extract all messages (with no limit), then take the next batch
-        # This is needed because extract_messages doesn't support offset
-        all_msgs = extract_messages(session)
-        new_msgs = all_msgs[skip:skip + self._preview_batch_size]
+        # Use offset parameter to skip already-loaded messages
+        new_msgs = extract_messages(session, limit=self._preview_batch_size, offset=skip)
 
         # Recheck guard after file I/O
         if self._preview_loading_session_id != session_id:
@@ -1207,23 +1224,25 @@ class KiroHistory(App):
             self.call_from_thread(self.notify, "All messages loaded", severity="information")
             return
 
+        # Check if this is the last batch
+        is_last_batch = len(new_msgs) < self._preview_batch_size
+        
         # Update shared state on main thread
         def update_state():
             if self._preview_loading_session_id != session_id:
                 return
             self._preview_messages.extend(new_msgs)
-            self._preview_all_loaded = len(all_msgs) <= len(self._preview_messages)
+            self._preview_all_loaded = is_last_batch
         self.call_from_thread(update_state)
 
         # Render new messages
         self.call_from_thread(self._render_messages, new_msgs)
 
-        # Show hint if more remain
-        remaining = len(all_msgs) - (skip + len(new_msgs))
-        if remaining > 0:
+        # Show hint if more remain (based on batch size comparison)
+        if not is_last_batch:
             preview = self.query_one("#preview", RichLog)
             self.call_from_thread(preview.write, Text.from_markup(
-                f"[dim]─── {remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
+                f"[dim]─── More messages available. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
             ))
 
     def action_search_content(self) -> None:

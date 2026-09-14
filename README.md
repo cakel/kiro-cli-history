@@ -49,7 +49,7 @@ cd kiro-cli-history
 install.bat
 ```
 
-`install.bat` installs to `%LOCALAPPDATA%\kiro-cli-history` and automatically adds the `bin` directory to your **User PATH**, so `kiro-cli-history` works from any terminal after opening a new window.
+`install.bat` installs to `C:\ProgramData\kiro-cli-history` (fixed path to avoid encoding issues with non-ASCII usernames) and automatically adds the `bin` directory to your **User PATH**, so `kiro-cli-history` works from any terminal after opening a new window.
 
 ### Dependencies
 
