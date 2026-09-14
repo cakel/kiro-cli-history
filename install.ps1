@@ -106,18 +106,23 @@ if (-not (Test-Path $srcStore)) {
 Copy-Item -LiteralPath $srcStore -Destination (Join-Path $installDir "session_store.py") -Force
 Write-OK "Copied session_store.py -> $installDir"
 
-# Inject current git hash into installed script
+# Inject current git version and hash into installed script
 $destScript = Join-Path $installDir "kiro_history.py"
 try {
     $gitHash = & git -C $SCRIPT_DIR rev-parse --short HEAD 2>$null
+    $gitTag = & git -C $SCRIPT_DIR describe --tags --abbrev=0 2>$null
     if ($LASTEXITCODE -eq 0 -and $gitHash) {
         $content = Get-Content $destScript -Raw -Encoding UTF8
         $content = $content -replace '_BUILT_HASH = ""', "_BUILT_HASH = `"$($gitHash.Trim())`""
+        if ($gitTag) {
+            $content = $content -replace '_BUILT_VERSION = ""', "_BUILT_VERSION = `"$($gitTag.Trim())`""
+            Write-OK "Injected git version: $($gitTag.Trim())"
+        }
         [System.IO.File]::WriteAllText($destScript, $content, [System.Text.UTF8Encoding]::new($false))
         Write-OK "Injected git hash: $($gitHash.Trim())"
     }
 } catch {
-    Write-Info "Could not inject git hash (git not available)"
+    Write-Info "Could not inject git version/hash (git not available)"
 }
 Write-OK "Copied kiro_history.py -> $installDir"
 

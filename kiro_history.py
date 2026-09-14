@@ -36,23 +36,24 @@ from session_store import (
 # Fallback version when git is not available
 VERSION = "v0.1.0-cakel.3"
 
-# Hash injected at install time by install.sh / install.ps1
+# Injected at install time by install.sh / install.ps1
 # If not replaced, falls back to git or VERSION constant
+_BUILT_VERSION = ""
 _BUILT_HASH = ""
 
 def _get_version_string() -> str:
     """Return version string: tag + short hash, always.
 
     Priority:
-      1. _BUILT_HASH injected at install time
-      2. git rev-parse from current repo (dev mode)
+      1. _BUILT_VERSION/_BUILT_HASH injected at install time
+      2. git describe/rev-parse from current repo (dev mode)
       3. VERSION constant (no git, no hash)
     """
-    tag = VERSION
-
-    # 1. Use hash injected at install time
-    if _BUILT_HASH:
-        return f"{tag}-{_BUILT_HASH}"
+    # 1. Use version/hash injected at install time
+    if _BUILT_VERSION and _BUILT_HASH:
+        return f"{_BUILT_VERSION}-{_BUILT_HASH}"
+    if _BUILT_VERSION:
+        return _BUILT_VERSION
 
     # 2. Try git (dev mode - running from repo)
     try:
