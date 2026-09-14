@@ -1010,12 +1010,18 @@ class KiroHistory(App):
 
     @on(Input.Submitted, "#preview-search")
     def on_preview_search_submitted(self, event: Input.Submitted) -> None:
-        """Enter in preview search → execute search."""
+        """Enter in preview search → execute search or jump to next match."""
         query = self._preview_search_query
-        if query:
-            self._run_preview_search(query)
-        else:
+        if not query:
             self._clear_search_highlights()
+            return
+        
+        # If search already done with same query, jump to next match
+        if self._preview_search_matches:
+            self._preview_search_next()
+        else:
+            # First Enter: execute search
+            self._run_preview_search(query)
 
     def _clear_search_highlights(self) -> None:
         """Clear search state and re-render without highlights."""
