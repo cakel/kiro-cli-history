@@ -937,6 +937,9 @@ class KiroHistory(App):
         if self._preview_all_loaded:
             self.notify("All messages loaded", severity="information")
             return
+        # Don't manually load more while search is loading all messages
+        if self._preview_search_query and not self._preview_search_executed:
+            return
         self._load_more_messages()
 
     @work(thread=True)
@@ -1160,7 +1163,7 @@ class KiroHistory(App):
 
     @work(thread=True)
     def _load_all_for_search(self, query: str) -> None:
-        """Load all remaining messages, then execute search."""
+        """Load ALL messages from scratch, then execute search."""
         session = self.selected_session
         if not session:
             return
@@ -1168,30 +1171,24 @@ class KiroHistory(App):
         if self._preview_loading_session_id != session_id:
             return
 
-        # Load ALL remaining messages first (collect them all)
-        all_new_msgs = []
+        # Load all messages from the beginning (avoids race with _preview_messages)
+        all_msgs = []
         while True:
-            skip = len(self._preview_messages) + len(all_new_msgs)
-            new_msgs = extract_messages(session, limit=self._preview_batch_size, offset=skip)
-            
-            # Guard check after I/O
+            new_msgs = extract_messages(session, limit=self._preview_batch_size, offset=len(all_msgs))
             if self._preview_loading_session_id != session_id:
                 return
-            
             if not new_msgs:
                 break
-            
-            all_new_msgs.extend(new_msgs)
-            
+            all_msgs.extend(new_msgs)
             if len(new_msgs) < self._preview_batch_size:
                 break
 
-        # Now update state and search in ONE call_from_thread
+        # Replace state and search in ONE call_from_thread (atomic)
         def update_and_search():
             if self._preview_loading_session_id != session_id:
                 return
-            if all_new_msgs:
-                self._preview_messages.extend(all_new_msgs)
+            # Replace entirely — avoids duplicates from concurrent _load_preview
+            self._preview_messages = all_msgs
             self._preview_all_loaded = True
             # Only search if query hasn't changed
             if self._preview_search_query == query:
