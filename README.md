@@ -46,7 +46,7 @@ Installs to `C:\ProgramData\kiro-cli-history` and adds it to your User PATH.
 
 ### Dependencies
 
-- Python 3.9+
+- Python 3.10+
 - [textual](https://github.com/Textualize/textual) (installed automatically)
 
 ## Quick start

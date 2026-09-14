@@ -9,7 +9,7 @@
 resuming Kiro CLI conversation sessions. It is a fork of
 https://github.com/prabhugr/kiro-cli-history with significant improvements.
 
-Tech stack: Python 3.9+, Textual (TUI framework), SQLite, JSONL.
+Tech stack: Python 3.10+, Textual (TUI framework), SQLite, JSONL.
 Single-file application: `kiro_history.py` (~1350 lines).
 
 ## Current state (v0.1.0-cakel.1)
