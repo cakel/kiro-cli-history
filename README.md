@@ -69,9 +69,9 @@ Run it from anywhere. It searches globally.
 | Key | Action |
 |-----|--------|
 | `/` | Focus search bar |
-| `↓` / `↑` or `j` / `k` | Navigate sessions |
-| `→` or `l` | Focus preview pane (for scrolling) |
-| `←` or `h` | Focus back to session list |
+| `Down` / `Up` or `j` / `k` | Navigate sessions |
+| `Right` or `l` | Focus preview pane (for scrolling) |
+| `Left` or `h` | Focus back to session list |
 | `m` or `Space` | Load more messages (lazy loading) |
 | `F2` | Rename selected session |
 | `Ctrl+R` | Resume session in Kiro CLI |
