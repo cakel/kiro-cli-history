@@ -89,18 +89,17 @@ from rich.markdown import Markdown
 class PreviewSearchInput(Input):
     """Input that emits a custom message on Shift+Enter."""
     
+    BINDINGS = [
+        Binding("shift+enter", "shift_enter", "Previous match", show=False),
+    ]
+    
     class ShiftEnterPressed(Message):
         """Emitted when Shift+Enter is pressed."""
         pass
 
-    def _on_key(self, event) -> None:
-        if event.key == "shift+enter":
-            event.prevent_default()
-            event.stop()
-            self.post_message(self.ShiftEnterPressed())
-            return
-        # Let parent handle other keys
-        super()._on_key(event)
+    def action_shift_enter(self) -> None:
+        """Handle Shift+Enter key."""
+        self.post_message(self.ShiftEnterPressed())
 
 
 class RenameScreen(ModalScreen):
@@ -227,9 +226,9 @@ class SessionItem(ListItem):
             # Append text before match (escaped)
             before = text[i:pos].replace("[", "\\[").replace("]", "\\]")
             result.append(f"[bold]{before}[/bold]")
-            # Append highlighted match
+            # Append highlighted match — use reverse for contrast even when selected
             match = text[pos:pos + len(query)].replace("[", "\\[").replace("]", "\\]")
-            result.append(f"[black on yellow bold]{match}[/black on yellow bold]")
+            result.append(f"[bold reverse]{match}[/bold reverse]")
             i = pos + len(query)
         else:
             if i >= len(text):
@@ -1191,9 +1190,10 @@ class KiroHistory(App):
         if self._preview_loading_session_id != session_id:
             return
 
-        # Load all remaining messages
-        while not self._preview_all_loaded:
-            skip = len(self._preview_messages)
+        # Load ALL remaining messages first (collect them all)
+        all_new_msgs = []
+        while True:
+            skip = len(self._preview_messages) + len(all_new_msgs)
             new_msgs = extract_messages(session, limit=self._preview_batch_size, offset=skip)
             
             # Guard check after I/O
@@ -1201,29 +1201,24 @@ class KiroHistory(App):
                 return
             
             if not new_msgs:
-                self._preview_all_loaded = True
                 break
             
-            # Update on main thread
-            is_last = len(new_msgs) < self._preview_batch_size
-            def update(msgs=new_msgs, last=is_last):
-                if self._preview_loading_session_id != session_id:
-                    return
-                self._preview_messages.extend(msgs)
-                self._preview_all_loaded = last
-            self.call_from_thread(update)
+            all_new_msgs.extend(new_msgs)
             
-            if is_last:
+            if len(new_msgs) < self._preview_batch_size:
                 break
 
-        # Now execute search on main thread
-        def do_search():
+        # Now update state and search in ONE call_from_thread
+        def update_and_search():
             if self._preview_loading_session_id != session_id:
                 return
+            if all_new_msgs:
+                self._preview_messages.extend(all_new_msgs)
+            self._preview_all_loaded = True
             # Only search if query hasn't changed
             if self._preview_search_query == query:
                 self._execute_preview_search(query)
-        self.call_from_thread(do_search)
+        self.call_from_thread(update_and_search)
 
     def _preview_search_next(self) -> None:
         """Jump to next match (scroll only, no re-render)."""
