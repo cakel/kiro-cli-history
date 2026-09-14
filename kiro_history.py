@@ -1233,16 +1233,10 @@ class KiroHistory(App):
 
         q = highlight_query.lower() if highlight_query else ""
         match_indices = set(self._preview_search_matches)
-        current_match_idx = (self._preview_search_matches[self._preview_search_current]
-                             if self._preview_search_current >= 0 else -1)
 
-        # Get theme colors for highlighting
+        # Get theme color for highlighting — accent is most visible
         theme = self.current_theme
-        # Line background: use a muted version of primary/accent
-        # Word highlight: use accent color (more visible)
-        line_bg_color = theme.primary if theme else "#004578"
-        word_bg_color = theme.accent if theme else "#ffa62b"
-        current_line_bg = theme.accent if theme else "#ffa62b"  # current match line
+        highlight_bg = theme.accent if theme else "#ffa62b"
 
         for i, msg in enumerate(self._preview_messages):
             role = msg["role"]
@@ -1261,11 +1255,9 @@ class KiroHistory(App):
                 for line in txt.split('\n'):
                     line_end = line_start + len(line)
                     if q in line.lower():
-                        # This line contains a match — apply background
-                        if i == current_match_idx:
-                            rendered.stylize(f"on {current_line_bg}", line_start, line_end)
-                        else:
-                            rendered.stylize(f"on {line_bg_color}", line_start, line_end)
+                        # All matching lines get accent background (no current/other distinction
+                        # to avoid expensive re-render on next/prev navigation)
+                        rendered.stylize(f"on {highlight_bg}", line_start, line_end)
                     line_start = line_end + 1  # +1 for the newline character
                 
                 # Apply word highlight (bold + contrasting color)
