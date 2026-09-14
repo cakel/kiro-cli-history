@@ -627,3 +627,64 @@ async def test_preview_messages_replaced_on_session_switch(fixture_env):
             f"Second session ({second_session_id[:8]}): {second_msg_text[:50]!r}\n"
             f"These should be different."
         )
+
+
+
+
+@pytest.mark.asyncio
+async def test_search_ignores_markdown_formatting(fixture_env):
+    """Search should match text ignoring markdown formatting like backticks and bold.
+    
+    Regression test for: user searches "skill-marketplace" but original text
+    has "`skill-marketplace`" with backticks — should still match.
+    
+    Uses fixture session aaaaaaaa-0008 which has markdown-formatted text.
+    """
+    app = KiroHistory()
+    async with app.run_test(headless=True, size=(120, 40)) as pilot:
+        await _wait_sessions_loaded(app, pilot)
+        
+        lv = app.query_one("#session-list", ListView)
+        lv.focus()
+        
+        # Find the markdown test session (title: "마크다운 포맷 테스트")
+        found = False
+        for i in range(10):
+            await pilot.press("j")
+            await pilot.pause(0.1)
+            if app.selected_session and "마크다운" in app.selected_session.get("title", ""):
+                found = True
+                break
+        
+        if not found:
+            pytest.skip("Markdown test session not found in fixture")
+        
+        await pilot.pause(0.3)
+        
+        if not app._preview_messages:
+            pytest.skip("No messages loaded")
+        
+        # Test 1: Search "skill-marketplace" should match "`skill-marketplace`"
+        opened = await _open_preview_search(app, pilot)
+        assert opened
+        
+        searched = await _type_preview_search(pilot, app, "skill-marketplace")
+        assert searched
+        assert len(app._preview_search_matches) >= 2, (
+            f"Should match 'skill-marketplace' ignoring backticks, "
+            f"got {len(app._preview_search_matches)} matches"
+        )
+        
+        # Clear and test bold
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        
+        # Test 2: Search "bold" should match "**bold**" and "__bold__"
+        opened = await _open_preview_search(app, pilot)
+        assert opened
+        searched = await _type_preview_search(pilot, app, "bold")
+        assert searched
+        assert len(app._preview_search_matches) >= 2, (
+            f"Should match 'bold' ignoring ** and __ markers, "
+            f"got {len(app._preview_search_matches)} matches"
+        )

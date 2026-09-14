@@ -101,6 +101,15 @@ FIXTURE_SESSIONS: list[_Spec] = [
         is_subagent=True,
         parent_session_id="aaaaaaaa-0001-0001-0001-000000000001",
     ),
+    _Spec(
+        session_id="aaaaaaaa-0008-0008-0008-000000000008",
+        title="마크다운 포맷 테스트",
+        cwd="D:/Work/markdown-test",
+        prompts=["How to use `skill-marketplace` in this project?",
+                 "What about *italic* and __bold__ text?"],
+        replies=["The **skill-marketplace** is already configured.",
+                 "You can use `code` with **bold** and *italic*."],
+    ),
 ]
 
 # SQLite v2 fixture sessions (stored in DB, not files)
@@ -143,6 +152,13 @@ EXPECTED: dict[str, set[str]] = {
     },
     "docker": {
         "aaaaaaaa-0005-0005-0005-000000000005",
+    },
+    # Markdown formatting test — search ignores backticks and bold markers
+    "skill-marketplace": {
+        "aaaaaaaa-0008-0008-0008-000000000008",
+    },
+    "bold": {
+        "aaaaaaaa-0008-0008-0008-000000000008",
     },
 }
 
