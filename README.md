@@ -15,6 +15,7 @@ Kiro CLI has great built-in [conversation persistence](https://kiro.dev/docs/cli
 - **Global search** - find conversations across all directories, not just the current one
 - **Full-text fuzzy search** - searches every message you and Kiro exchanged, not just titles
 - **Conversation preview** - read through the full exchange with markdown rendering before deciding to resume
+- **In-preview search** - press `Ctrl+F` to search within the current conversation with match highlighting
 - **One-key resume** - press `Ctrl+R` to jump into Kiro CLI and continue the conversation
 - **Session management** - rename sessions (`F2`), hide single-turn and untitled sessions
 - **Lazy loading** - fast startup with background session loading; preview loads incrementally
@@ -54,7 +55,7 @@ Installs to `C:\ProgramData\kiro-cli-history` and adds it to your User PATH.
 kiro-cli-history
 ```
 
-Run from anywhere. Press `/` to search, `Ctrl+R` to resume a session.
+Run from anywhere. Press `/` to search sessions, `Ctrl+F` to search within a conversation, `Ctrl+R` to resume.
 
 ## Documentation
 

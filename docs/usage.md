@@ -4,7 +4,7 @@
 
 | Key | Action |
 |-----|--------|
-| `/` | Focus search bar |
+| `/` | Focus search bar (session search) |
 | `Down` / `Up` or `j` / `k` | Navigate sessions |
 | `Right` or `l` | Focus preview pane (for scrolling) |
 | `Left` or `h` | Focus back to session list |
@@ -14,9 +14,24 @@
 | `Ctrl+N` | Start a new Kiro CLI session |
 | `Ctrl+Y` | Copy conversation to clipboard |
 | `Ctrl+P` | Open command palette |
-| `Ctrl+F` | Focus search bar |
-| `Esc` | Clear search / Quit |
+| `Ctrl+F` | Search within preview (in-preview search) |
+| `Esc` | Clear search / Close preview search / Quit |
 | `Ctrl+C` | Quit |
+
+## In-preview search (`Ctrl+F`)
+
+Search within the currently selected conversation:
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+F` | Open search bar in preview pane |
+| `Enter` | Jump to next match |
+| `Shift+Enter` | Jump to previous match |
+| `Esc` | Close search bar |
+
+- Matching messages are highlighted with a distinct background color
+- Search ignores markdown formatting (backticks, bold `**`, italic `*`)
+- All messages are loaded before searching to ensure complete results
 
 ## Command palette (`Ctrl+P`)
 
