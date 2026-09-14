@@ -16,9 +16,19 @@ from session_store import _sqlite_db_path, SESSIONS_DIR
 
 
 def test_sqlite_db_path():
-    """플랫폼별 SQLite DB 경로 반환 테스트"""
+    """플랫폼별 SQLite DB 경로 반환 테스트
+    
+    Note: This tests the _sqlite_db_path() function directly without fixture patching.
+    If KIRO_DEMO_DIR is set (by fixtures), the path will be in temp dir - that's OK.
+    """
     path = _sqlite_db_path()
     assert isinstance(path, Path), f"Expected Path, got {type(path)}"
+    
+    # If KIRO_DEMO_DIR is set, path is in demo/fixture dir - skip platform checks
+    if os.environ.get("KIRO_DEMO_DIR"):
+        assert "kiro-cli" in str(path), f"Path should contain 'kiro-cli': {path}"
+        print(f"[OK] test_sqlite_db_path (fixture mode): {path}")
+        return
 
     if sys.platform == "win32":
         assert "kiro-cli" in str(path), f"Windows path should contain 'kiro-cli': {path}"
