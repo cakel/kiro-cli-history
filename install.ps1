@@ -54,13 +54,21 @@ if (-not (Test-Path $binDir))     { New-Item -ItemType Directory -Path $binDir  
 # Remove existing venv first to avoid lock conflicts on reinstall
 if (Test-Path $venvDir) {
     Write-Info "Removing existing virtual environment..."
+    # Kill any running kiro-cli-history processes holding the venv
+    $blocked = Get-Process python* -ErrorAction SilentlyContinue |
+               Where-Object { $_.Path -like "*kiro-cli-history*" }
+    if ($blocked) {
+        foreach ($p in $blocked) {
+            Write-Info "Stopping running instance (PID $($p.Id))..."
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Milliseconds 500
+    }
     try {
         Remove-Item $venvDir -Recurse -Force -ErrorAction Stop
         Write-OK "Removed existing venv"
     } catch {
-        Write-Warn "Could not remove existing venv: $_"
-        Write-Warn "Close any running kiro-cli-history instances and retry."
-        throw "Cannot reinstall while venv is in use."
+        Write-Err "Could not remove existing venv: $_`n  Try closing all terminals and retry."
     }
 }
 
