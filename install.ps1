@@ -51,6 +51,19 @@ if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installD
 if (-not (Test-Path $binDir))     { New-Item -ItemType Directory -Path $binDir     -Force | Out-Null }
 
 # -- 3. Create virtual environment (prefer uv, fallback to venv) --
+# Remove existing venv first to avoid lock conflicts on reinstall
+if (Test-Path $venvDir) {
+    Write-Info "Removing existing virtual environment..."
+    try {
+        Remove-Item $venvDir -Recurse -Force -ErrorAction Stop
+        Write-OK "Removed existing venv"
+    } catch {
+        Write-Warn "Could not remove existing venv: $_"
+        Write-Warn "Close any running kiro-cli-history instances and retry."
+        throw "Cannot reinstall while venv is in use."
+    }
+}
+
 if (Get-Command uv -ErrorAction SilentlyContinue) {
     Write-Info "Using uv (fast mode)..."
     & uv venv $venvDir
