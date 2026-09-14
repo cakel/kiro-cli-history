@@ -288,9 +288,10 @@ class KiroHistory(App):
         self._search_id = 0  # Counter for search debounce
         # Preview in-pane search state
         self._preview_search_active = False  # Whether preview search bar is visible
-        self._preview_search_query = ""      # Current preview search query
+        self._preview_search_query = ""      # Current input query (may not be searched yet)
+        self._preview_search_executed = ""   # Query that was actually searched (results valid for this)
         self._preview_search_matches: list[int] = []  # Indices into _preview_messages
-        self._preview_search_current = -1   # Current match index
+        self._preview_search_current = -1   # Current match index (-1 = no selection)
 
     def get_system_commands(self, screen):
         """Add custom commands to the command palette."""
@@ -609,8 +610,8 @@ class KiroHistory(App):
                 else:
                     preview.scroll_end()
                 return
-            # n/N: next/prev match when preview search is active
-            if self._preview_search_active:
+            # n/N: next/prev match when search has been executed
+            if self._preview_search_executed:
                 if event.key == "n":
                     event.prevent_default()
                     event.stop()
@@ -670,6 +671,7 @@ class KiroHistory(App):
         if self._preview_search_active:
             self._preview_search_active = False
             self._preview_search_query = ""
+            self._preview_search_executed = ""
             self._preview_search_matches = []
             self._preview_search_current = -1
             ps = self.query_one("#preview-search", Input)
@@ -986,6 +988,7 @@ class KiroHistory(App):
         """Hide the preview search bar and restore preview focus."""
         self._preview_search_active = False
         self._preview_search_query = ""
+        self._preview_search_executed = ""
         self._preview_search_matches = []
         self._preview_search_current = -1
         ps = self.query_one("#preview-search", Input)
@@ -1016,15 +1019,16 @@ class KiroHistory(App):
             self._clear_search_highlights()
             return
         
-        # If search already done with same query, jump to next match
-        if self._preview_search_matches:
+        # Same query already searched? → jump to next match
+        if query.lower() == self._preview_search_executed.lower() and self._preview_search_matches:
             self._preview_search_next()
         else:
-            # First Enter: execute search
+            # New query or no results yet → execute search
             self._run_preview_search(query)
 
     def _clear_search_highlights(self) -> None:
         """Clear search state and re-render without highlights."""
+        self._preview_search_executed = ""
         self._preview_search_matches = []
         self._preview_search_current = -1
         self._update_search_info("", 0, -1)
@@ -1061,6 +1065,7 @@ class KiroHistory(App):
             i for i, msg in enumerate(self._preview_messages)
             if q in msg.get("text", "").lower()
         ]
+        self._preview_search_executed = query  # Mark this query as searched
         self._preview_search_matches = matches
         self._preview_search_current = 0 if matches else -1
         self._rerender_preview(highlight_query=query)
@@ -1158,26 +1163,26 @@ class KiroHistory(App):
 
     def _preview_search_next(self) -> None:
         """Jump to next match (scroll only, no re-render)."""
-        if not self._preview_search_matches:
-            # No matches yet — maybe trigger search
+        if not self._preview_search_executed or not self._preview_search_matches:
+            # No search done yet or no matches — trigger search if query exists
             if self._preview_search_query:
                 self._run_preview_search(self._preview_search_query)
             return
         n = len(self._preview_search_matches)
         self._preview_search_current = (self._preview_search_current + 1) % n
         idx = self._preview_search_matches[self._preview_search_current]
-        self._update_search_info(self._preview_search_query, n,
+        self._update_search_info(self._preview_search_executed, n,
                                   self._preview_search_current)
         self._scroll_to_match(idx)
 
     def _preview_search_prev(self) -> None:
         """Jump to previous match (scroll only, no re-render)."""
-        if not self._preview_search_matches:
+        if not self._preview_search_executed or not self._preview_search_matches:
             return
         n = len(self._preview_search_matches)
         self._preview_search_current = (self._preview_search_current - 1) % n
         idx = self._preview_search_matches[self._preview_search_current]
-        self._update_search_info(self._preview_search_query, n,
+        self._update_search_info(self._preview_search_executed, n,
                                   self._preview_search_current)
         self._scroll_to_match(idx)
 
