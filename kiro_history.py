@@ -78,12 +78,30 @@ def _get_version_string() -> str:
 
 from textual.containers import Horizontal, Vertical, Center
 from textual.screen import ModalScreen
+from textual.message import Message
 from textual.widgets import Footer, Header, Input, Static, ListView, ListItem, RichLog, Button
 from rich.text import Text
 from rich.markdown import Markdown
 
 
 # --- UI Components ---
+
+class PreviewSearchInput(Input):
+    """Input that emits a custom message on Shift+Enter."""
+    
+    class ShiftEnterPressed(Message):
+        """Emitted when Shift+Enter is pressed."""
+        pass
+
+    def _on_key(self, event) -> None:
+        if event.key == "shift+enter":
+            event.prevent_default()
+            event.stop()
+            self.post_message(self.ShiftEnterPressed())
+            return
+        # Let parent handle other keys
+        super()._on_key(event)
+
 
 class RenameScreen(ModalScreen):
     """Dialog for renaming a session."""
@@ -160,9 +178,10 @@ class RenameScreen(ModalScreen):
 class SessionItem(ListItem):
     """A single session row in the list."""
 
-    def __init__(self, session: dict) -> None:
+    def __init__(self, session: dict, highlight_query: str = "") -> None:
         super().__init__()
         self.session = session
+        self.highlight_query = highlight_query.lower()
 
     def compose(self) -> ComposeResult:
         raw_ts = (self.session.get("updated_at") or "")[:10]
@@ -173,17 +192,49 @@ class SessionItem(ListItem):
         except (ValueError, TypeError):
             ts = raw_ts
         title = (self.session.get("title") or "(untitled)")[:60]
-        # Escape Rich markup characters to prevent rendering issues
-        title = title.replace("[", "\\[").replace("]", "\\]")
         cwd = os.path.basename(self.session.get("cwd") or "")
         msgs = self.session.get("msg_count", 0)
         dur = self.session.get("duration_min", 0)
         dur_str = "-" if dur == 0 else (f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m")
+        
+        # Build the display with optional highlight
+        if self.highlight_query:
+            # Highlight matching text in title
+            title_text = self._highlight_text(title, self.highlight_query)
+        else:
+            # Escape Rich markup characters
+            title = title.replace("[", "\\[").replace("]", "\\]")
+            title_text = f"[bold]{title}[/bold]"
+        
         yield Static(
-            f"[bold]{title}[/bold]\n"
+            f"{title_text}\n"
             f"[dim]{cwd}[/dim]  [dim italic]{ts}[/dim italic]  [dim cyan]{msgs} msgs[/dim cyan]  [dim green]{dur_str}[/dim green]",
             markup=True,
         )
+    
+    def _highlight_text(self, text: str, query: str) -> str:
+        """Highlight query matches in text with black on yellow background."""
+        result = []
+        i = 0
+        text_lower = text.lower()
+        while i < len(text):
+            pos = text_lower.find(query, i)
+            if pos == -1:
+                # No more matches — append rest (escaped)
+                rest = text[i:].replace("[", "\\[").replace("]", "\\]")
+                result.append(f"[bold]{rest}[/bold]")
+                break
+            # Append text before match (escaped)
+            before = text[i:pos].replace("[", "\\[").replace("]", "\\]")
+            result.append(f"[bold]{before}[/bold]")
+            # Append highlighted match
+            match = text[pos:pos + len(query)].replace("[", "\\[").replace("]", "\\]")
+            result.append(f"[black on yellow bold]{match}[/black on yellow bold]")
+            i = pos + len(query)
+        else:
+            if i >= len(text):
+                pass  # Already handled
+        return "".join(result)
 
 
 class KiroHistory(App):
@@ -438,8 +489,8 @@ class KiroHistory(App):
                 yield Input(placeholder="Search sessions...", id="search-input")
                 yield ListView(id="session-list")
             with Vertical(id="right-pane"):
-                yield Input(placeholder="Search in preview... (Esc to close)",
-                            id="preview-search")
+                yield PreviewSearchInput(placeholder="Search in preview... (Esc to close)",
+                                         id="preview-search")
                 yield Static("", id="preview-search-info")
                 yield RichLog(id="preview", wrap=True, highlight=True, markup=True)
         yield Static("", id="status-bar")
@@ -488,11 +539,11 @@ class KiroHistory(App):
         # Kick off background cache prebuild so subsequent searches are instant
         start_cache_prebuild(sessions)
 
-    def _populate_list(self, sessions):
+    def _populate_list(self, sessions, highlight_query: str = ""):
         list_view = self.query_one("#session-list", ListView)
         list_view.clear()
         for session in sessions:
-            list_view.append(SessionItem(session))
+            list_view.append(SessionItem(session, highlight_query))
 
     # --- Search ---
 
@@ -519,11 +570,7 @@ class KiroHistory(App):
                 event.stop()
                 self._close_preview_search()
                 return
-            if event.key == "shift+enter":
-                event.prevent_default()
-                event.stop()
-                self._preview_search_prev()
-                return
+            # Note: shift+enter handled by PreviewSearchInput.ShiftEnterPressed message
             # Ctrl+F again → next match
             if event.key == "ctrl+f":
                 event.prevent_default()
@@ -543,6 +590,17 @@ class KiroHistory(App):
 
         # Session list navigation: j/k for up/down
         if list_view.has_focus:
+            # Enter: move focus to preview
+            if event.key == "enter":
+                event.prevent_default()
+                event.stop()
+                preview.focus()
+                return
+            # Shift+Enter: stay in list (no-op, just prevent default select behavior)
+            if event.key == "shift+enter":
+                event.prevent_default()
+                event.stop()
+                return
             if event.key == "j":
                 event.prevent_default()
                 event.stop()
@@ -646,7 +704,7 @@ class KiroHistory(App):
             if search_id and self._search_id != search_id:
                 return
             self.filtered_sessions = results
-            self._populate_list(results)
+            self._populate_list(results, query)
             status_text = f" {len(results)}/{len(self.all_sessions)} sessions"
             if query:
                 status_text += f" matching '{query}'"
@@ -1025,6 +1083,12 @@ class KiroHistory(App):
         else:
             # New query or no results yet → execute search
             self._run_preview_search(query)
+
+    def on_preview_search_input_shift_enter_pressed(
+        self, event: PreviewSearchInput.ShiftEnterPressed
+    ) -> None:
+        """Shift+Enter in preview search → jump to previous match."""
+        self._preview_search_prev()
 
     def _clear_search_highlights(self) -> None:
         """Clear search state and re-render without highlights."""
