@@ -5,6 +5,18 @@ INSTALL_DIR="$HOME/.local/share/kiro-cli-history"
 BIN_DIR="$HOME/.local/bin"
 VENV_DIR="$INSTALL_DIR/venv"
 
+# Cleanup function for rollback on failure
+cleanup_on_error() {
+    echo ""
+    echo "ERROR: Installation failed. Cleaning up..."
+    rm -rf "$INSTALL_DIR" 2>/dev/null || true
+    rm -f "$BIN_DIR/kiro-cli-history" 2>/dev/null || true
+    exit 1
+}
+
+# Set trap for cleanup on error
+trap cleanup_on_error ERR
+
 echo "kiro-cli-history installer"
 echo "======================"
 echo ""
@@ -37,14 +49,14 @@ if command -v uv &>/dev/null; then
     uv pip install textual --python "$VENV_DIR/bin/python" || { echo "ERROR: uv pip install failed"; exit 1; }
 else
     echo "Using standard venv..."
-    python3 -m venv "$VENV_DIR"
-    "$VENV_DIR/bin/pip" install --upgrade pip --quiet
-    "$VENV_DIR/bin/pip" install textual --quiet
+    python3 -m venv "$VENV_DIR" || { echo "ERROR: python3 venv creation failed"; exit 1; }
+    "$VENV_DIR/bin/pip" install --upgrade pip --quiet || { echo "ERROR: pip upgrade failed"; exit 1; }
+    "$VENV_DIR/bin/pip" install textual --quiet || { echo "ERROR: textual install failed"; exit 1; }
 fi
 
 # Copy files
 echo "Installing to $INSTALL_DIR..."
-cp "$(dirname "$0")/kiro_history.py" "$INSTALL_DIR/kiro_history.py"
+cp "$(dirname "$0")/kiro_history.py" "$INSTALL_DIR/kiro_history.py" || { echo "ERROR: Failed to copy kiro_history.py"; exit 1; }
 
 # Create wrapper script that uses venv python
 cat > "$BIN_DIR/kiro-cli-history" << EOF
@@ -52,6 +64,9 @@ cat > "$BIN_DIR/kiro-cli-history" << EOF
 exec "$VENV_DIR/bin/python" "$INSTALL_DIR/kiro_history.py" "\$@"
 EOF
 chmod +x "$BIN_DIR/kiro-cli-history"
+
+# Disable trap after successful installation
+trap - ERR
 
 # Check if ~/.local/bin is in PATH
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then

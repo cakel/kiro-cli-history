@@ -137,70 +137,73 @@ def _load_sqlite_sessions():
 
     try:
         conn = sqlite3.connect(f"file:{SQLITE_DB}?mode=ro", uri=True)
-    except sqlite3.OperationalError:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError, PermissionError, OSError):
+        # DB locked by Kiro, corrupted, or permission denied
         return sessions
 
-    # V2 sessions (Dec 2025 - Mar 2026) — have timestamps and session IDs
     try:
-        rows = conn.execute(
-            "SELECT key, conversation_id, value, created_at, updated_at "
-            "FROM conversations_v2 ORDER BY updated_at DESC"
-        ).fetchall()
-        for cwd, conv_id, value, created_ms, updated_ms in rows:
-            try:
-                d = json.loads(value)
-                history = d.get("history", [])
-                title = _get_first_prompt_from_history(history)
-                created = datetime.fromtimestamp(created_ms / 1000).strftime("%Y-%m-%dT%H:%M:%S")
-                updated = datetime.fromtimestamp(updated_ms / 1000).strftime("%Y-%m-%dT%H:%M:%S")
-                msg_count = len(history)
-                duration_min = int((updated_ms - created_ms) / 1000 / 60)
-                sessions.append({
-                    "session_id": conv_id,
-                    "title": title,
-                    "cwd": cwd,
-                    "created_at": created,
-                    "updated_at": updated,
-                    "source": "sqlite_v2",
-                    "msg_count": msg_count,
-                    "duration_min": duration_min,
-                    "_history": history,
-                    "is_subagent": _is_sqlite_subagent(history),
-                    "parent_session_id": None,
-                })
-            except (json.JSONDecodeError, KeyError, ValueError):
-                pass
-    except sqlite3.OperationalError:
-        pass
+        # V2 sessions (Dec 2025 - Mar 2026) — have timestamps and session IDs
+        try:
+            rows = conn.execute(
+                "SELECT key, conversation_id, value, created_at, updated_at "
+                "FROM conversations_v2 ORDER BY updated_at DESC"
+            ).fetchall()
+            for cwd, conv_id, value, created_ms, updated_ms in rows:
+                try:
+                    d = json.loads(value)
+                    history = d.get("history", [])
+                    title = _get_first_prompt_from_history(history)
+                    created = datetime.fromtimestamp(created_ms / 1000).strftime("%Y-%m-%dT%H:%M:%S")
+                    updated = datetime.fromtimestamp(updated_ms / 1000).strftime("%Y-%m-%dT%H:%M:%S")
+                    msg_count = len(history)
+                    duration_min = int((updated_ms - created_ms) / 1000 / 60)
+                    sessions.append({
+                        "session_id": conv_id,
+                        "title": title,
+                        "cwd": cwd,
+                        "created_at": created,
+                        "updated_at": updated,
+                        "source": "sqlite_v2",
+                        "msg_count": msg_count,
+                        "duration_min": duration_min,
+                        "_history": history,
+                        "is_subagent": _is_sqlite_subagent(history),
+                        "parent_session_id": None,
+                    })
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    pass
+        except sqlite3.OperationalError:
+            pass
 
-    # V1 sessions (Nov 2025 - Dec 2025) — keyed by directory, no timestamps
-    try:
-        rows = conn.execute("SELECT key, value FROM conversations").fetchall()
-        for cwd, value in rows:
-            try:
-                d = json.loads(value)
-                history = d.get("history", [])
-                title = _get_first_prompt_from_history(history)
-                conv_id = d.get("conversation_id", "")
-                sessions.append({
-                    "session_id": conv_id,
-                    "title": title,
-                    "cwd": cwd,
-                    "created_at": "",
-                    "updated_at": "",
-                    "source": "sqlite_v1",
-                    "msg_count": len(history),
-                    "duration_min": 0,
-                    "_history": history,
-                    "is_subagent": False,  # SQLite sessions predate subagent feature
-                    "parent_session_id": None,
-                })
-            except (json.JSONDecodeError, KeyError, ValueError):
-                pass
-    except sqlite3.OperationalError:
-        pass
+        # V1 sessions (Nov 2025 - Dec 2025) — keyed by directory, no timestamps
+        try:
+            rows = conn.execute("SELECT key, value FROM conversations").fetchall()
+            for cwd, value in rows:
+                try:
+                    d = json.loads(value)
+                    history = d.get("history", [])
+                    title = _get_first_prompt_from_history(history)
+                    conv_id = d.get("conversation_id", "")
+                    sessions.append({
+                        "session_id": conv_id,
+                        "title": title,
+                        "cwd": cwd,
+                        "created_at": "",
+                        "updated_at": "",
+                        "source": "sqlite_v1",
+                        "msg_count": len(history),
+                        "duration_min": 0,
+                        "_history": history,
+                        "is_subagent": False,  # SQLite sessions predate subagent feature
+                        "parent_session_id": None,
+                    })
+                except (json.JSONDecodeError, KeyError, ValueError):
+                    pass
+        except sqlite3.OperationalError:
+            pass
+    finally:
+        conn.close()
 
-    conn.close()
     return sessions
 
 
@@ -459,6 +462,11 @@ class RenameScreen(ModalScreen):
         else:
             self.action_cancel()
 
+    @on(Input.Submitted, "#rename-input")
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in rename input."""
+        self.action_save()
+
     def action_save(self) -> None:
         new_title = self.query_one("#rename-input", Input).value.strip()
         self.dismiss(new_title if new_title else None)
@@ -552,15 +560,12 @@ class KiroHistory(App):
         Binding("f2", "rename_session", "Rename"),
         Binding("escape", "clear_or_quit", "Clear / Quit"),
         Binding("ctrl+c", "quit", "Quit"),
-        Binding("/", "focus_search", "Search"),
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
+        # Note: j/k/space/slash handled in on_key to avoid Input focus conflicts
         Binding("right", "focus_preview", "Preview", show=False),
         Binding("l", "focus_preview", "Preview", show=False),
         Binding("left", "focus_list", "List", show=False),
         Binding("h", "focus_list", "List", show=False),
         Binding("m", "load_more", "More", show=False),
-        Binding("space", "load_more", "More", show=False),
     ]
 
     def __init__(self):
@@ -577,6 +582,7 @@ class KiroHistory(App):
         self._preview_messages = []  # Messages loaded so far
         self._preview_all_loaded = False  # Whether all messages are loaded
         self._preview_batch_size = 30  # Messages per batch
+        self._preview_loading_session_id = None  # Guard for race condition
         self._sessions_loading = True  # Whether sessions are still loading
 
     def get_system_commands(self, screen):
@@ -626,12 +632,18 @@ class KiroHistory(App):
         status = "shown" if self._show_untitled else "hidden"
         self.notify(f"Untitled sessions {status}")
 
+    # Table name allowlist for SQL injection prevention
+    _SQL_TABLES = {
+        "sqlite_v2": ("conversations_v2", "conversation_id"),
+        "sqlite_v1": ("conversations", "key"),  # V1 uses key-value structure
+    }
+
     def _update_session_title(self, session: dict, new_title: str) -> bool:
         """Update session title in the source file."""
         source = session.get("source")
         
         if source == "jsonl":
-            # Update JSONL metadata file
+            # Update JSONL metadata file (atomic write)
             jsonl_path = session.get("jsonl_path")
             if not jsonl_path:
                 return False
@@ -640,25 +652,55 @@ class KiroHistory(App):
                 with open(json_path, "r", encoding="utf-8") as f:
                     metadata = json.load(f)
                 metadata["title"] = new_title
-                with open(json_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, ensure_ascii=False, indent=2)
+                # Atomic write: write to temp file, then rename
+                import tempfile
+                dir_path = os.path.dirname(json_path)
+                with tempfile.NamedTemporaryFile(
+                    mode="w", encoding="utf-8", suffix=".json",
+                    dir=dir_path, delete=False
+                ) as tf:
+                    json.dump(metadata, tf, ensure_ascii=False, indent=2)
+                    temp_path = tf.name
+                os.replace(temp_path, json_path)
                 return True
             except Exception:
+                # Clean up temp file if rename failed
+                try:
+                    if 'temp_path' in locals():
+                        os.unlink(temp_path)
+                except OSError:
+                    pass
                 return False
         
-        elif source in ("sqlite_v2", "sqlite_v1"):
+        elif source in self._SQL_TABLES:
             # Update SQLite database
             db_path = _sqlite_db_path()
             if not db_path or not os.path.exists(db_path):
                 return False
             try:
-                table = "conversations_v2" if source == "sqlite_v2" else "conversations"
+                table, id_col = self._SQL_TABLES[source]
                 with sqlite3.connect(db_path) as conn:
-                    conn.execute(
-                        f"UPDATE {table} SET title = ? WHERE session_id = ?",
-                        (new_title, session["session_id"])
-                    )
-                    conn.commit()
+                    if source == "sqlite_v1":
+                        # V1 uses key-value structure, update JSON in value column
+                        row = conn.execute(
+                            f"SELECT value FROM {table} WHERE {id_col} = ?",
+                            (session["session_id"],)
+                        ).fetchone()
+                        if row:
+                            data = json.loads(row[0])
+                            data["title"] = new_title
+                            conn.execute(
+                                f"UPDATE {table} SET value = ? WHERE {id_col} = ?",
+                                (json.dumps(data), session["session_id"])
+                            )
+                            conn.commit()
+                    else:
+                        # V2 has direct columns
+                        conn.execute(
+                            f"UPDATE {table} SET title = ? WHERE {id_col} = ?",
+                            (new_title, session["session_id"])
+                        )
+                        conn.commit()
                 return True
             except Exception:
                 return False
@@ -719,29 +761,62 @@ class KiroHistory(App):
 
     def on_key(self, event) -> None:
         """Handle key events for navigation."""
-        # Search input: down/j moves to session list
         search_input = self.query_one("#search-input", Input)
-        if search_input.has_focus and event.key in ("down", "j"):
-            event.prevent_default()
-            event.stop()
-            self.query_one("#session-list", ListView).focus()
-            return
-
-        # Session list: up/k at first item moves to search input
         list_view = self.query_one("#session-list", ListView)
-        if list_view.has_focus and event.key in ("up", "k"):
-            if list_view.index == 0 or len(list_view.children) == 0:
+        preview = self.query_one("#preview", RichLog)
+
+        # Skip special key handling when Input has focus (allow normal typing)
+        if search_input.has_focus:
+            # Only handle down/j to move to session list
+            if event.key in ("down", "j"):
                 event.prevent_default()
                 event.stop()
-                search_input.focus()
+                list_view.focus()
+            return
+
+        # Session list navigation: j/k for up/down
+        if list_view.has_focus:
+            if event.key == "j":
+                event.prevent_default()
+                event.stop()
+                list_view.action_cursor_down()
+                return
+            if event.key == "k":
+                if list_view.index == 0 or len(list_view.children) == 0:
+                    event.prevent_default()
+                    event.stop()
+                    search_input.focus()
+                else:
+                    event.prevent_default()
+                    event.stop()
+                    list_view.action_cursor_up()
+                return
+            # space to load more (only in session list, not in ListView default toggle)
+            if event.key == "space":
+                event.prevent_default()
+                event.stop()
+                self.action_load_more()
                 return
 
         # Preview pane: left/h moves back to session list
-        preview = self.query_one("#preview", RichLog)
-        if preview.has_focus and event.key in ("left", "h"):
+        if preview.has_focus:
+            if event.key in ("left", "h"):
+                event.prevent_default()
+                event.stop()
+                list_view.focus()
+                return
+            # space to load more in preview pane too
+            if event.key == "space":
+                event.prevent_default()
+                event.stop()
+                self.action_load_more()
+                return
+
+        # / to focus search (only when not in Input)
+        if event.key == "slash":
             event.prevent_default()
             event.stop()
-            self.query_one("#session-list", ListView).focus()
+            search_input.focus()
             return
 
     @work(thread=True)
@@ -770,10 +845,16 @@ class KiroHistory(App):
             return
         session = event.item.session
         self.selected_session = session
+        self._preview_loading_session_id = session.get("session_id")
         self._load_preview(session)
 
     @work(thread=True)
     def _load_preview(self, session: dict) -> None:
+        # Guard: if another session was selected while loading, abort
+        session_id = session.get("session_id")
+        if self._preview_loading_session_id != session_id:
+            return
+
         preview = self.query_one("#preview", RichLog)
         self.call_from_thread(preview.clear)
 
@@ -795,13 +876,25 @@ class KiroHistory(App):
             f"[bold]DURATION:[/bold] {dur_str}\n"
             f"[bold]ID:[/bold] {session.get('session_id', '')}\n"
         )
+        
+        # Recheck guard after expensive operations
+        if self._preview_loading_session_id != session_id:
+            return
+            
         self.call_from_thread(preview.write, Text.from_markup(header))
         self.call_from_thread(preview.write, Text("─" * 50))
         self.call_from_thread(preview.write, Text(""))
 
         # Lazy loading: extract only first batch initially
-        self._preview_messages = extract_messages(session, limit=self._preview_batch_size)
-        self._preview_all_loaded = len(self._preview_messages) < self._preview_batch_size
+        messages = extract_messages(session, limit=self._preview_batch_size)
+        all_loaded = len(messages) < self._preview_batch_size
+
+        # Final guard before updating shared state
+        if self._preview_loading_session_id != session_id:
+            return
+            
+        self._preview_messages = messages
+        self._preview_all_loaded = all_loaded
 
         if not self._preview_messages:
             self.call_from_thread(preview.write, Text("(no conversation data)"))
