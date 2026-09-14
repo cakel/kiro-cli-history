@@ -112,11 +112,10 @@ setlocal
 endlocal & exit /b %ERRORLEVEL%
 "@
 
-# Write in UTF-8 with BOM for better Unicode path support
-# Note: Some older cmd.exe may not handle UTF-8 BOM correctly, but this is safer
-# for paths containing non-ASCII characters (Korean, CJK, etc.)
-$utf8Bom = New-Object System.Text.UTF8Encoding($true)
-[System.IO.File]::WriteAllText($batPath, $batBody, $utf8Bom)
+# Write in UTF-8 without BOM — cmd.exe does not handle UTF-8 BOM
+# C:\ProgramData path is ASCII-only so encoding is not an issue
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($batPath, $batBody, $utf8NoBom)
 Write-OK "Wrote launcher bat: $batPath"
 
 # -- 6. Register bin dir in User PATH (idempotent) --
