@@ -86,7 +86,7 @@ Run it from anywhere. It searches globally.
 
 Access additional commands:
 - **Toggle --trust-all-tools** — enable/disable the flag on resume/new
-- **Toggle non-interactive sessions** — show/hide background agent sessions (hidden by default)
+- **Toggle single-turn sessions** — show/hide sessions with only one exchange (hidden by default)
 - **Toggle untitled sessions** — show/hide sessions with no title (hidden by default)
 
 ### Searching
