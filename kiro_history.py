@@ -577,6 +577,38 @@ class KiroHistory(App):
                 event.stop()
                 self.action_load_more()
                 return
+            # Page Down: scroll down, auto-load more if near bottom
+            if event.key == "pagedown":
+                event.prevent_default()
+                event.stop()
+                preview.scroll_page_down()
+                # Auto-load more when scrolled near bottom
+                if not self._preview_all_loaded:
+                    max_scroll = preview.virtual_size.height - preview.size.height
+                    if max_scroll > 0 and preview.scroll_y >= max_scroll - 10:
+                        self.action_load_more()
+                return
+            # Page Up: scroll up
+            if event.key == "pageup":
+                event.prevent_default()
+                event.stop()
+                preview.scroll_page_up()
+                return
+            # Home: scroll to top
+            if event.key == "home":
+                event.prevent_default()
+                event.stop()
+                preview.scroll_home()
+                return
+            # End: scroll to bottom, load all remaining messages first
+            if event.key == "end":
+                event.prevent_default()
+                event.stop()
+                if not self._preview_all_loaded:
+                    self._load_all_then_scroll_end()
+                else:
+                    preview.scroll_end()
+                return
             # n/N: next/prev match when preview search is active
             if self._preview_search_active:
                 if event.key == "n":
@@ -1012,6 +1044,48 @@ class KiroHistory(App):
         # Scroll to first match
         if matches:
             self._scroll_to_match(matches[0])
+
+    @work(thread=True)
+    def _load_all_then_scroll_end(self) -> None:
+        """Load all remaining messages, then scroll to end."""
+        session = self.selected_session
+        if not session:
+            return
+        session_id = session.get("session_id")
+        if self._preview_loading_session_id != session_id:
+            return
+
+        # Load all remaining messages
+        while not self._preview_all_loaded:
+            skip = len(self._preview_messages)
+            new_msgs = extract_messages(session, limit=self._preview_batch_size, offset=skip)
+            
+            if self._preview_loading_session_id != session_id:
+                return
+            
+            if not new_msgs:
+                self._preview_all_loaded = True
+                break
+            
+            is_last = len(new_msgs) < self._preview_batch_size
+            def update(msgs=new_msgs, last=is_last):
+                if self._preview_loading_session_id != session_id:
+                    return
+                self._preview_messages.extend(msgs)
+                self._preview_all_loaded = last
+            self.call_from_thread(update)
+            self.call_from_thread(self._render_messages, new_msgs)
+            
+            if is_last:
+                break
+
+        # Scroll to end on main thread
+        def scroll_end():
+            if self._preview_loading_session_id != session_id:
+                return
+            preview = self.query_one("#preview", RichLog)
+            preview.scroll_end()
+        self.call_from_thread(scroll_end)
 
     @work(thread=True)
     def _load_all_for_search(self, query: str) -> None:
