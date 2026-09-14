@@ -571,8 +571,8 @@ class KiroHistory(App):
         self.selected_session = None
         # Settings
         self._trust_all_tools = True  # Default: enabled
-        self._show_non_interactive = True  # Default: show all sessions
-        self._show_untitled = True  # Default: show untitled sessions
+        self._show_non_interactive = False  # Default: hide non-interactive sessions
+        self._show_untitled = False  # Default: hide untitled sessions
         self._viewer_search_query = ""
         # Lazy loading state
         self._preview_messages = []  # Messages loaded so far
