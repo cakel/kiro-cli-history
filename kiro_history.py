@@ -25,31 +25,33 @@ from textual.binding import Binding
 VERSION = "v0.1.0-cakel.1"
 
 def _get_version_string() -> str:
-    """Return version string from git tags + short hash.
+    """Return version string: tag + short hash, always.
 
     Examples:
-      repo with tag:    v0.1.0-cakel.1-abc1234
-      repo without tag: abc1234
+      tagged commit:    v0.1.0-cakel.1-abc1234
+      untagged commit:  abc1234
       no git:           v0.1.0-cakel.1  (fallback constant)
     """
     try:
         script_dir = Path(__file__).parent
+        # Get short hash (always shown)
+        hash_result = subprocess.run(
+            ["git", "-C", str(script_dir), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=2
+        )
+        if hash_result.returncode != 0:
+            return VERSION
+        short_hash = hash_result.stdout.strip()
+
         # Try to get latest tag
         tag_result = subprocess.run(
             ["git", "-C", str(script_dir), "describe", "--tags", "--abbrev=0"],
             capture_output=True, text=True, timeout=2
         )
-        # Get short hash
-        hash_result = subprocess.run(
-            ["git", "-C", str(script_dir), "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=2
-        )
-        if hash_result.returncode == 0:
-            short_hash = hash_result.stdout.strip()
-            if tag_result.returncode == 0:
-                tag = tag_result.stdout.strip()
-                return f"{tag}-{short_hash}"
-            return short_hash
+        if tag_result.returncode == 0:
+            tag = tag_result.stdout.strip()
+            return f"{tag}-{short_hash}"
+        return short_hash
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
     return VERSION
