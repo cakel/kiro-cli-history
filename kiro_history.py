@@ -92,6 +92,40 @@ SQLITE_DB = _sqlite_db_path()
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB guard
 
 
+def _load_sqlite_history(session: dict) -> list | None:
+    """Load history on demand from SQLite DB (lazy loading).
+    
+    Returns history list, or None on error.
+    """
+    db_path = _sqlite_db_path()
+    if not db_path or not Path(db_path).exists():
+        return None
+    source = session.get("source", "")
+    session_id = session.get("session_id", "")
+    cwd = session.get("cwd", "")
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            if source == "sqlite_v2":
+                row = conn.execute(
+                    "SELECT value FROM conversations_v2 WHERE conversation_id = ?",
+                    (session_id,)
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT value FROM conversations WHERE key = ?",
+                    (cwd,)
+                ).fetchone()
+            if row:
+                d = json.loads(row[0])
+                return d.get("history", [])
+        finally:
+            conn.close()
+    except (sqlite3.OperationalError, sqlite3.DatabaseError, json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
 def _extract_messages_from_history(history, limit=None):
     """Extract messages from a SQLite v1/v2 history array."""
     messages = []
@@ -211,7 +245,6 @@ def _load_sqlite_sessions():
                         "source": "sqlite_v2",
                         "msg_count": msg_count,
                         "duration_min": duration_min,
-                        "_history": history,
                         "is_subagent": _is_sqlite_subagent(history),
                         "parent_session_id": None,
                     })
@@ -238,7 +271,6 @@ def _load_sqlite_sessions():
                         "source": "sqlite_v1",
                         "msg_count": len(history),
                         "duration_min": 0,
-                        "_history": history,
                         "is_subagent": False,  # SQLite sessions predate subagent feature
                         "parent_session_id": None,
                     })
@@ -272,16 +304,8 @@ def _load_jsonl_sessions():
                 meta = json.load(f)
             created = meta.get("created_at") or ""
             updated = meta.get("updated_at") or ""
-            # Count messages in JSONL - use fast byte search instead of JSON parsing
             jsonl_path = str(Path(json_file).with_suffix(".jsonl"))
             msg_count = 0
-            jp = Path(jsonl_path)
-            if jp.exists():
-                try:
-                    data = jp.read_bytes()
-                    msg_count = data.count(b'"kind":"Prompt"') + data.count(b'"kind":"AssistantMessage"')
-                except OSError:
-                    pass
             # Compute duration
             duration_min = 0
             if created and updated:
@@ -294,6 +318,14 @@ def _load_jsonl_sessions():
             session_id = meta.get("session_id", "")
             if session_id:
                 seen_session_ids.add(session_id)
+            # Count messages via fast byte search
+            jp = Path(jsonl_path)
+            if jp.exists():
+                try:
+                    raw = jp.read_bytes()
+                    msg_count = raw.count(b'"kind":"Prompt"') + raw.count(b'"kind":"AssistantMessage"')
+                except OSError:
+                    pass
             sessions.append({
                 "session_id": session_id,
                 "title": meta.get("title") or "(untitled)",
@@ -306,6 +338,7 @@ def _load_jsonl_sessions():
                 "jsonl_path": jsonl_path,
                 "is_subagent": meta.get("session_created_reason") == "subagent",
                 "parent_session_id": meta.get("parent_session_id"),
+                "_search_text": None,  # Lazily populated on first search
             })
         except (json.JSONDecodeError, KeyError, ValueError, OSError):
             pass
@@ -326,9 +359,11 @@ def _load_jsonl_sessions():
             msg_count = data.count(b'"kind":"Prompt"') + data.count(b'"kind":"AssistantMessage"')
             # Get file times as fallback
             stat = jsonl_file.stat()
-            created = datetime.fromtimestamp(stat.st_ctime).strftime("%Y-%m-%dT%H:%M:%S")
+            # Use st_mtime for both created/updated - st_ctime is not reliable
+            # on Windows (it's metadata change time, not creation time)
+            created = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
             updated = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%dT%H:%M:%S")
-            duration_min = max(0, int((stat.st_mtime - stat.st_ctime) / 60))
+            duration_min = 0  # Cannot determine from file timestamps alone
             sessions.append({
                 "session_id": session_id,
                 "title": "(untitled)",
@@ -383,9 +418,18 @@ def extract_messages(session, limit=None, offset=0):
         limit: Max messages to return (None = all)
         offset: Number of messages to skip from start
     """
-    # SQLite sessions carry _history inline
-    if "_history" in session:
-        msgs = _extract_messages_from_history(session["_history"], limit=None if offset else limit)
+    # SQLite sessions: load history on demand from DB (lazy)
+    if session.get("source") in ("sqlite_v1", "sqlite_v2") and "_history" not in session:
+        history = _load_sqlite_history(session)
+        if history is None:
+            return []
+    elif "_history" in session:
+        history = session["_history"]
+    else:
+        history = None
+
+    if history is not None:
+        msgs = _extract_messages_from_history(history, limit=None if offset else limit)
         if offset:
             msgs = msgs[offset:]
             if limit:
@@ -487,31 +531,33 @@ def search_sessions(query, sessions):
             if found:
                 results.append(session)
         elif session.get("jsonl_path"):
-            # JSONL sessions - search file
+            # JSONL sessions - use/build search cache lazily
             jsonl_path = Path(session["jsonl_path"])
             if not jsonl_path.exists() or jsonl_path.stat().st_size == 0:
                 continue
             if jsonl_path.stat().st_size > MAX_FILE_SIZE:
                 continue
-            found = False
-            with open(jsonl_path, encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        d = json.loads(line)
-                        kind = d.get("kind", "")
-                        if kind not in ("Prompt", "AssistantMessage"):
-                            continue
-                        content = d.get("data", {}).get("content", [])
-                        for block in (content if isinstance(content, list) else []):
-                            if isinstance(block, dict) and block.get("kind") == "text":
-                                if _fuzzy_match(query, block.get("data", "")):
-                                    found = True
-                                    break
-                        if found:
-                            break
-                    except (json.JSONDecodeError, KeyError, ValueError):
-                        pass
-            if found:
+
+            # Build cache on first search for this session
+            if session.get("_search_text") is None:
+                search_parts = []
+                try:
+                    with open(jsonl_path, encoding="utf-8") as f:
+                        for line in f:
+                            try:
+                                d = json.loads(line)
+                                if d.get("kind") not in ("Prompt", "AssistantMessage"):
+                                    continue
+                                for block in d.get("data", {}).get("content", []):
+                                    if isinstance(block, dict) and block.get("kind") == "text":
+                                        search_parts.append(block.get("data", ""))
+                            except (json.JSONDecodeError, KeyError):
+                                pass
+                except OSError:
+                    pass
+                session["_search_text"] = " ".join(search_parts)
+
+            if _fuzzy_match(query, session["_search_text"]):
                 results.append(session)
 
     return results
@@ -674,7 +720,7 @@ class KiroHistory(App):
         Binding("ctrl+r", "resume", "Resume session"),
         Binding("ctrl+n", "new_session", "New session"),
         Binding("ctrl+y", "copy_conversation", "Copy to clipboard"),
-        Binding("ctrl+f", "search_content", "Search in conversation"),
+        Binding("ctrl+f", "search_content", "Focus search"),
         Binding("f2", "rename_session", "Rename"),
         Binding("escape", "clear_or_quit", "Clear / Quit"),
         Binding("ctrl+c", "quit", "Quit"),
@@ -884,7 +930,7 @@ class KiroHistory(App):
         self.call_from_thread(self._refresh_sessions)
         self.call_from_thread(
             self.query_one("#status-bar", Static).update,
-            f" {len(sessions)} sessions | Ctrl+R resume | / search | ? help"
+            f" {len(sessions)} sessions | Ctrl+R resume | / search | Ctrl+P menu"
         )
         # If user typed search query while loading, apply it now
         def apply_search():
