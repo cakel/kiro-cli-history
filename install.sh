@@ -52,7 +52,7 @@ fi
 if command -v uv &>/dev/null; then
     echo "Using uv (fast mode)..."
     uv venv "$VENV_DIR" || { echo "ERROR: uv venv creation failed"; exit 1; }
-    # Use venv python directly — avoids --python flag version compatibility issues
+    # Use venv python directly - avoids --python flag version compatibility issues
     "$VENV_DIR/bin/python" -m pip install textual --quiet || {
         # Fall back to uv pip if pip not available in venv
         uv pip install --python "$VENV_DIR" textual || { echo "ERROR: textual install failed"; exit 1; }

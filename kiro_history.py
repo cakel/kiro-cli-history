@@ -27,7 +27,7 @@ from rich.markdown import Markdown
 
 # --- Data Layer (read-only) ---
 
-# Paths — override with KIRO_DEMO_DIR env var for demo/recording
+# Paths - override with KIRO_DEMO_DIR env var for demo/recording
 _DEMO_DIR = os.environ.get("KIRO_DEMO_DIR", "")
 if _DEMO_DIR:
     # Normalize to absolute path to prevent path traversal
@@ -69,7 +69,7 @@ def _extract_messages_from_history(history, limit=None):
                 messages.append({"role": "you", "text": prompt_text})
                 if limit and len(messages) >= limit:
                     return messages
-        # Assistant message — structure varies:
+        # Assistant message - structure varies:
         #   assistant.content.Text (older format)
         #   assistant.Response.content (text reply)
         #   assistant.ToolUse.content (thinking before tool) + .tool_uses (tools called)
@@ -145,7 +145,7 @@ def _load_sqlite_sessions():
         return sessions
 
     try:
-        # V2 sessions (Dec 2025 - Mar 2026) — have timestamps and session IDs
+        # V2 sessions (Dec 2025 - Mar 2026) - have timestamps and session IDs
         try:
             rows = conn.execute(
                 "SELECT key, conversation_id, value, created_at, updated_at "
@@ -184,7 +184,7 @@ def _load_sqlite_sessions():
         except sqlite3.OperationalError:
             pass
 
-        # V1 sessions (Nov 2025 - Dec 2025) — keyed by directory, no timestamps
+        # V1 sessions (Nov 2025 - Dec 2025) - keyed by directory, no timestamps
         try:
             rows = conn.execute("SELECT key, value FROM conversations").fetchall()
             for cwd, value in rows:
@@ -236,7 +236,7 @@ def _load_jsonl_sessions():
                 meta = json.load(f)
             created = meta.get("created_at") or ""
             updated = meta.get("updated_at") or ""
-            # Count messages in JSONL — use fast byte search instead of JSON parsing
+            # Count messages in JSONL - use fast byte search instead of JSON parsing
             jsonl_path = str(Path(json_file).with_suffix(".jsonl"))
             msg_count = 0
             jp = Path(jsonl_path)
@@ -423,7 +423,7 @@ def search_sessions(query, sessions):
 
         # Search conversation content
         if "_history" in session:
-            # SQLite sessions — search inline history
+            # SQLite sessions - search inline history
             found = False
             for entry in session["_history"]:
                 user = entry.get("user", {})
@@ -451,7 +451,7 @@ def search_sessions(query, sessions):
             if found:
                 results.append(session)
         elif session.get("jsonl_path"):
-            # JSONL sessions — search file
+            # JSONL sessions - search file
             jsonl_path = Path(session["jsonl_path"])
             if not jsonl_path.exists() or jsonl_path.stat().st_size == 0:
                 continue
@@ -576,7 +576,7 @@ class SessionItem(ListItem):
         cwd = os.path.basename(self.session.get("cwd") or "")
         msgs = self.session.get("msg_count", 0)
         dur = self.session.get("duration_min", 0)
-        dur_str = "—" if dur == 0 else (f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m")
+        dur_str = "-" if dur == 0 else (f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m")
         yield Static(
             f"[bold]{title}[/bold]\n"
             f"[dim]{cwd}[/dim]  [dim italic]{ts}[/dim italic]  [dim cyan]{msgs} msgs[/dim cyan]  [dim green]{dur_str}[/dim green]",
@@ -994,7 +994,7 @@ class KiroHistory(App):
         updated = (session.get("updated_at") or "")[:19].replace("T", " ")
         msgs = session.get("msg_count", 0)
         dur = session.get("duration_min", 0)
-        dur_str = "—" if dur == 0 else (f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m")
+        dur_str = "-" if dur == 0 else (f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m")
 
         header = (
             f"[bold]SESSION:[/bold] {title}\n"
@@ -1011,7 +1011,7 @@ class KiroHistory(App):
             return
             
         self.call_from_thread(preview.write, Text.from_markup(header))
-        self.call_from_thread(preview.write, Text("─" * 50))
+        self.call_from_thread(preview.write, Text("-" * 50))
         self.call_from_thread(preview.write, Text(""))
 
         # Lazy loading: extract only first batch initially
@@ -1042,7 +1042,7 @@ class KiroHistory(App):
         if not all_loaded and total_msgs > len(messages):
             remaining = total_msgs - len(messages)
             self.call_from_thread(preview.write, Text.from_markup(
-                f"[dim]─── ~{remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
+                f"[dim]--- ~{remaining} more messages. Press [bold]m[/bold] or [bold]space[/bold] to load more ---[/dim]"
             ))
 
     def _render_messages(self, messages: list) -> None:
@@ -1105,7 +1105,7 @@ class KiroHistory(App):
         - Any: msg_count == 0 (truly empty)
         
         Note: JSONL sessions have is_subagent based on session_created_reason,
-        which is unreliable alone — normal sessions can also have it set.
+        which is unreliable alone - normal sessions can also have it set.
         Only use it for SQLite v2 where it's computed from history content.
         
         msg_count semantics differ:
@@ -1248,7 +1248,7 @@ class KiroHistory(App):
         if not is_last_batch:
             preview = self.query_one("#preview", RichLog)
             self.call_from_thread(preview.write, Text.from_markup(
-                f"[dim]─── More messages available. Press [bold]m[/bold] or [bold]space[/bold] to load more ───[/dim]"
+                f"[dim]--- More messages available. Press [bold]m[/bold] or [bold]space[/bold] to load more ---[/dim]"
             ))
 
     def action_search_content(self) -> None:

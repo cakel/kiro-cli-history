@@ -112,7 +112,7 @@ setlocal
 endlocal & exit /b %ERRORLEVEL%
 "@
 
-# Write in UTF-8 without BOM — cmd.exe does not handle UTF-8 BOM
+# Write in UTF-8 without BOM - cmd.exe does not handle UTF-8 BOM
 # C:\ProgramData path is ASCII-only so encoding is not an issue
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($batPath, $batBody, $utf8NoBom)
