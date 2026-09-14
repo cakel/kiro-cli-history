@@ -759,7 +759,8 @@ class KiroHistory(App):
             if self._preview_loading_session_id != session_id:
                 return
             # Don't overwrite if all messages already loaded (e.g. by search)
-            if not self._preview_all_loaded:
+            # Also don't overwrite if search is in progress
+            if not self._preview_all_loaded and not self._preview_search_query:
                 self._preview_messages = messages
                 self._preview_all_loaded = all_loaded
         self.call_from_thread(update_preview_state)
@@ -784,8 +785,9 @@ class KiroHistory(App):
         
         Skipped if search has already done a full re-render (_preview_search_executed).
         """
-        # If a search re-render is active, don't append raw messages on top
-        if self._preview_search_executed:
+        # If search is active (query entered or executed), don't append raw
+        # unhighlighted messages on top of the re-rendered view
+        if self._preview_search_query or self._preview_search_executed:
             return
         preview = self.query_one("#preview", RichLog)
         for msg in messages:
@@ -1192,6 +1194,11 @@ class KiroHistory(App):
             # Only search if query hasn't changed
             if self._preview_search_query == query:
                 self._execute_preview_search(query)
+            else:
+                self.notify(
+                    f"Search skipped: query changed '{query}'→'{self._preview_search_query}'",
+                    severity="warning", timeout=5
+                )
         self.call_from_thread(update_and_search)
 
     def _preview_search_next(self) -> None:

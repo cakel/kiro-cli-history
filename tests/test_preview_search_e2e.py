@@ -397,7 +397,7 @@ async def test_large_session_search_loads_all(tmp_path, monkeypatch):
     import uuid as _uuid
     import session_store as ss
 
-    N = 60
+    N = 120   # 4× batch size — covers the real-world 757-message case
     KEYWORD = "검색대상_고유키워드"
 
     # Build JSONL file
@@ -502,6 +502,22 @@ async def test_large_session_search_loads_all(tmp_path, monkeypatch):
         for idx in app._preview_search_matches:
             txt = app._preview_messages[idx].get("text", "")
             assert KEYWORD in txt, f"Match at {idx} missing keyword: {txt!r}"
+
+        # Matches must span the full range — not just first batch (30)
+        # This is the core race-condition check
+        max_match_idx = max(app._preview_search_matches)
+        assert max_match_idx >= 30, (
+            f"All matches in first batch only (max={max_match_idx}). "
+            "Race condition: _preview_messages was overwritten with 30-msg batch."
+        )
+
+        # No false negatives: every message with keyword must be in matches
+        match_set = set(app._preview_search_matches)
+        for i, msg in enumerate(app._preview_messages):
+            if KEYWORD in msg.get("text", "").lower():
+                assert i in match_set, (
+                    f"Message {i} contains keyword but not in matches (false negative)"
+                )
 
 @pytest.mark.asyncio
 async def test_search_state_cleared_on_session_switch(fixture_env):
