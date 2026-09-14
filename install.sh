@@ -20,14 +20,18 @@ fi
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$BIN_DIR"
 
-# Create virtual environment
-echo "Creating virtual environment..."
-python3 -m venv "$VENV_DIR"
-
-# Install textual in venv
-echo "Installing textual (TUI framework)..."
-"$VENV_DIR/bin/pip" install --upgrade pip --quiet
-"$VENV_DIR/bin/pip" install textual --quiet
+# Create virtual environment and install dependencies
+# Prefer uv if available, fallback to standard venv
+if command -v uv &>/dev/null; then
+    echo "Using uv (fast mode)..."
+    uv venv "$VENV_DIR"
+    uv pip install textual --python "$VENV_DIR/bin/python"
+else
+    echo "Using standard venv..."
+    python3 -m venv "$VENV_DIR"
+    "$VENV_DIR/bin/pip" install --upgrade pip --quiet
+    "$VENV_DIR/bin/pip" install textual --quiet
+fi
 
 # Copy files
 echo "Installing to $INSTALL_DIR..."

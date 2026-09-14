@@ -3,8 +3,8 @@
 .SYNOPSIS
   kiro-cli-history uninstaller (Windows).
 .DESCRIPTION
-  Reverses install.ps1: removes the launcher bat, install directory,
-  and the User PATH entry — same pattern as claude-exacode's uninstall.ps1.
+  Reverses install.ps1: removes the launcher bat, install directory
+  (including venv), and the User PATH entry.
   Project files (kiro_history.py in the repo) are NOT touched.
 #>
 
@@ -16,6 +16,7 @@ function Write-Warn { param($m) Write-Host "[WARN]  $m" -ForegroundColor Yellow 
 
 $installDir = Join-Path $env:LOCALAPPDATA "kiro-cli-history"
 $binDir     = Join-Path $installDir "bin"
+$venvDir    = Join-Path $installDir "venv"
 $batPath    = Join-Path $binDir "kiro-cli-history.bat"
 
 Write-Host ""
@@ -36,7 +37,12 @@ if (Test-Path $batPath) {
     Write-Info "kiro-cli-history.bat not found (already removed?)"
 }
 
-# -- 2. Remove install directory --
+# -- 2. Remove virtual environment --
+if (Test-Path $venvDir) {
+    Write-Info "Removing virtual environment: $venvDir"
+}
+
+# -- 3. Remove install directory (includes venv) --
 if (Test-Path $installDir) {
     try {
         Remove-Item $installDir -Recurse -Force -ErrorAction Stop
@@ -48,7 +54,7 @@ if (Test-Path $installDir) {
     Write-Info "$installDir not found (already removed?)"
 }
 
-# -- 3. Remove User PATH entry (claude-exacode pattern: element-wise, handles trailing \) --
+# -- 4. Remove User PATH entry --
 try {
     $path    = [System.Environment]::GetEnvironmentVariable("Path", "User")
     $target  = $binDir.TrimEnd('\')
