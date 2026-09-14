@@ -53,7 +53,7 @@ class TestAppImport(unittest.TestCase):
         from kiro_history import KiroHistory
         app = KiroHistory()
         self.assertIsNotNone(app)
-        self.assertEqual(app.title, "kiro-cli-history")
+        self.assertTrue(app.title.startswith("kiro-cli-history"))
 
     def test_bindings_exist(self):
         """App should have expected key bindings."""

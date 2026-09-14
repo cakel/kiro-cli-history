@@ -18,6 +18,25 @@ from pathlib import Path
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+
+# --- Version ---
+
+VERSION = "v0.1.0-cakel.1"
+
+def _get_version_string() -> str:
+    """Return version string with git short hash if available."""
+    try:
+        script_dir = Path(__file__).parent
+        result = subprocess.run(
+            ["git", "-C", str(script_dir), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=2
+        )
+        if result.returncode == 0:
+            short_hash = result.stdout.strip()
+            return f"{VERSION}-{short_hash}"
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    return VERSION
 from textual.containers import Horizontal, Vertical, Center
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Static, ListView, ListItem, RichLog, Button
@@ -587,7 +606,7 @@ class SessionItem(ListItem):
 class KiroHistory(App):
     """Kiro CLI session browser and search."""
 
-    TITLE = "kiro-cli-history"
+    TITLE = f"kiro-cli-history ({_get_version_string()})"
     CSS = """
     Screen {
         layout: horizontal;
@@ -657,7 +676,7 @@ class KiroHistory(App):
         self.selected_session = None
         # Settings
         self._trust_all_tools = True  # Default: enabled
-        self._show_non_interactive = False  # Default: hide non-interactive sessions
+        self._show_single_turn = False  # Default: hide single-turn sessions
         self._show_untitled = False  # Default: hide untitled sessions
         self._viewer_search_query = ""
         # Lazy loading state
@@ -681,12 +700,12 @@ class KiroHistory(App):
             self._toggle_trust_all_tools
         )
         
-        # Toggle non-interactive sessions visibility
-        ni_status = "shown" if self._show_non_interactive else "hidden"
+        # Toggle single-turn sessions visibility
+        single_turn_status = "shown" if self._show_single_turn else "hidden"
         yield SystemCommand(
-            f"Toggle non-interactive sessions (currently {ni_status})",
-            "Show/hide sessions with no user messages",
-            self._toggle_non_interactive
+            f"Toggle single-turn sessions (currently {single_turn_status})",
+            "Show/hide sessions with only one exchange (hidden by default)",
+            self._toggle_single_turn
         )
         
         # Toggle untitled sessions visibility
@@ -703,11 +722,11 @@ class KiroHistory(App):
         status = "enabled" if self._trust_all_tools else "disabled"
         self.notify(f"--trust-all-tools {status}")
 
-    def _toggle_non_interactive(self) -> None:
-        self._show_non_interactive = not self._show_non_interactive
+    def _toggle_single_turn(self) -> None:
+        self._show_single_turn = not self._show_single_turn
         self._refresh_sessions()
-        status = "shown" if self._show_non_interactive else "hidden"
-        self.notify(f"Non-interactive sessions {status}")
+        status = "shown" if self._show_single_turn else "hidden"
+        self.notify(f"Single-turn sessions {status}")
 
     def _toggle_untitled(self) -> None:
         self._show_untitled = not self._show_untitled
@@ -937,7 +956,7 @@ class KiroHistory(App):
 
     @work(thread=True)
     def _do_search(self, query: str, search_id: int = 0) -> None:
-        # Search within currently filtered base (respects non-interactive/untitled toggles)
+        # Search within currently filtered base (respects single-turn/untitled toggles)
         base = self._get_filtered_base()
         results = search_sessions(query, base)
         
@@ -1080,12 +1099,12 @@ class KiroHistory(App):
             self._populate_list(self.filtered_sessions)
 
     def _get_filtered_base(self) -> list:
-        """Return sessions after applying non-interactive and untitled filters."""
+        """Return sessions after applying single-turn and untitled filters."""
         filtered = self.all_sessions
 
-        # Filter non-interactive sessions (subagent sessions or very few messages)
-        if not self._show_non_interactive:
-            filtered = [s for s in filtered if not self._is_non_interactive(s)]
+        # Filter single-turn sessions (subagent sessions or very few messages)
+        if not self._show_single_turn:
+            filtered = [s for s in filtered if not self._is_single_turn(s)]
 
         # Filter untitled sessions
         if not self._show_untitled:
@@ -1096,38 +1115,28 @@ class KiroHistory(App):
 
         return filtered
 
-    def _is_non_interactive(self, session: dict) -> bool:
-        """Check if a session is non-interactive (subagent or minimal messages).
+    def _is_single_turn(self, session: dict) -> bool:
+        """Check if a session has only a single exchange (one prompt, one response).
 
-        Detection rules by source:
-        - JSONL: parent_session_id present (true child subagent)
-        - SQLite v2: is_subagent=True (1 Prompt + ToolUseResults pattern)
-        - Any: msg_count == 0 (truly empty)
-        
-        Note: JSONL sessions have is_subagent based on session_created_reason,
-        which is unreliable alone - normal sessions can also have it set.
-        Only use it for SQLite v2 where it's computed from history content.
-        
-        msg_count semantics differ:
-        - JSONL: count of Prompt + AssistantMessage (1-turn = 2)
-        - SQLite: len(history) entries (1-turn = 1)
-        So we only filter truly empty sessions (msg_count == 0).
+        Uses msg_count with source-aware thresholds:
+        - JSONL: msg_count counts individual Prompt + AssistantMessage lines
+                 so 1-turn = 2. Single-turn threshold: <= 2.
+                 Also catches subagents via parent_session_id.
+        - SQLite: msg_count = len(history), 1-turn = 1.
+                  Single-turn threshold: <= 1.
         """
         source = session.get("source", "")
+        msg_count = session.get("msg_count", 0)
 
-        # JSONL: reliable indicator is parent_session_id
         if source == "jsonl":
+            # JSONL: parent_session_id is the reliable subagent indicator
             if session.get("parent_session_id"):
                 return True
-        # SQLite v2: reliable indicator is history-derived is_subagent
-        elif source == "sqlite_v2":
-            if session.get("is_subagent"):
-                return True
-
-        # Universal fallback: truly empty sessions only
-        if session.get("msg_count", 0) == 0:
-            return True
-        return False
+            # 1-turn JSONL = Prompt(1) + AssistantMessage(1) = 2
+            return msg_count <= 2
+        else:
+            # SQLite: 1 history entry = 1 full exchange
+            return msg_count <= 1
 
     def action_rename_session(self) -> None:
         """Rename the selected session (F2)."""
