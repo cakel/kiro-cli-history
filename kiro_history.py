@@ -228,6 +228,8 @@ def _load_jsonl_sessions():
                 "msg_count": msg_count,
                 "duration_min": duration_min,
                 "jsonl_path": jsonl_path,
+                "is_subagent": meta.get("session_created_reason") == "subagent",
+                "parent_session_id": meta.get("parent_session_id"),
             })
         except (json.JSONDecodeError, KeyError, ValueError, OSError):
             pass
@@ -819,11 +821,11 @@ class KiroHistory(App):
         """Refresh session list with current filter settings."""
         filtered = self.all_sessions
         
-        # Filter non-interactive sessions
+        # Filter non-interactive sessions (subagent sessions or very few messages)
         if not self._show_non_interactive:
             filtered = [
                 s for s in filtered
-                if s.get("msg_count", 0) > 1  # Has more than just system/init message
+                if not self._is_non_interactive(s)
             ]
         
         # Filter untitled sessions
@@ -838,6 +840,21 @@ class KiroHistory(App):
         search = self.query_one("#search-input", Input)
         if search.value:
             self._do_search(search.value)
+
+    def _is_non_interactive(self, session: dict) -> bool:
+        """Check if a session is non-interactive (subagent or minimal messages).
+        
+        A session is non-interactive if:
+        1. It's a subagent session WITH a parent (true subagent spawned by another session)
+        2. It has very few messages (0 or 1)
+        """
+        # True subagent: has parent_session_id (spawned by another session)
+        if session.get("parent_session_id"):
+            return True
+        # Sessions with very few messages (0 or 1) are non-interactive
+        if session.get("msg_count", 0) <= 1:
+            return True
+        return False
 
     def action_rename_session(self) -> None:
         """Rename the selected session (F2)."""
