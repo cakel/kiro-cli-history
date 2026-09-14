@@ -681,17 +681,21 @@ class KiroHistory(App):
                 table, id_col = self._SQL_TABLES[source]
                 with sqlite3.connect(db_path) as conn:
                     if source == "sqlite_v1":
-                        # V1 uses key-value structure, update JSON in value column
+                        # V1 uses key-value structure: key=cwd, value=JSON
+                        # Query by cwd, not session_id
+                        lookup_key = session.get("cwd", "")
+                        if not lookup_key:
+                            return False
                         row = conn.execute(
                             f"SELECT value FROM {table} WHERE {id_col} = ?",
-                            (session["session_id"],)
+                            (lookup_key,)
                         ).fetchone()
                         if row:
                             data = json.loads(row[0])
                             data["title"] = new_title
                             conn.execute(
                                 f"UPDATE {table} SET value = ? WHERE {id_col} = ?",
-                                (json.dumps(data), session["session_id"])
+                                (json.dumps(data), lookup_key)
                             )
                             conn.commit()
                     else:
@@ -999,7 +1003,8 @@ class KiroHistory(App):
             if new_title:
                 if self._update_session_title(self.selected_session, new_title):
                     self.selected_session["title"] = new_title
-                    self.notify(f"Renamed to: {new_title[:50]}...")
+                    display = new_title[:50] + ("..." if len(new_title) > 50 else "")
+                    self.notify(f"Renamed to: {display}")
                     # Refresh the list to show new title
                     self._populate_list(self.filtered_sessions)
                 else:
@@ -1009,6 +1014,10 @@ class KiroHistory(App):
 
     def action_resume(self) -> None:
         if not self.selected_session:
+            return
+        session_id = self.selected_session.get("session_id", "")
+        if not session_id:
+            self.notify("Cannot resume: session has no ID", severity="error")
             return
         cwd = self.selected_session.get("cwd", "")
         if not cwd or not os.path.isdir(cwd):
@@ -1061,6 +1070,11 @@ class KiroHistory(App):
         if not session:
             return
 
+        # Guard: if another session was selected, abort
+        session_id = session.get("session_id")
+        if self._preview_loading_session_id != session_id:
+            return
+
         # Calculate how many we need to skip
         skip = len(self._preview_messages)
 
@@ -1068,6 +1082,10 @@ class KiroHistory(App):
         # This is needed because extract_messages doesn't support offset
         all_msgs = extract_messages(session)
         new_msgs = all_msgs[skip:skip + self._preview_batch_size]
+
+        # Recheck guard after file I/O
+        if self._preview_loading_session_id != session_id:
+            return
 
         if not new_msgs:
             self._preview_all_loaded = True

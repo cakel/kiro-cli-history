@@ -124,7 +124,7 @@ class TestSQLiteRename:
         assert row[0] == "new title"
 
     def test_rename_v1_key_value_structure(self, tmp_path):
-        """V1 uses key-value structure in conversations table."""
+        """V1 uses key-value structure: key=cwd, value=JSON in conversations table."""
         db_path = tmp_path / "test.sqlite3"
         conn = sqlite3.connect(db_path)
         conn.execute("""
@@ -133,15 +133,16 @@ class TestSQLiteRename:
                 value TEXT
             )
         """)
-        # V1 stores data as JSON in value column
+        # V1 stores data as JSON in value column, key is cwd
+        cwd = "/path/to/project"
         v1_data = json.dumps({
-            "id": "conv-456",
+            "conversation_id": "conv-456",
             "title": "old title",
-            "cwd": "/path"
+            "cwd": cwd
         })
         conn.execute(
             "INSERT INTO conversations VALUES (?, ?)",
-            ("conv-456", v1_data)
+            (cwd, v1_data)
         )
         conn.commit()
         conn.close()
@@ -149,6 +150,7 @@ class TestSQLiteRename:
         session = {
             "source": "sqlite_v1",
             "session_id": "conv-456",
+            "cwd": cwd,  # V1 rename uses cwd as lookup key
         }
         
         from kiro_history import KiroHistory
@@ -162,7 +164,7 @@ class TestSQLiteRename:
         conn = sqlite3.connect(db_path)
         row = conn.execute(
             "SELECT value FROM conversations WHERE key = ?",
-            ("conv-456",)
+            (cwd,)
         ).fetchone()
         conn.close()
         

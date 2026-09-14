@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Get absolute path of script directory (works from any CWD)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 INSTALL_DIR="$HOME/.local/share/kiro-cli-history"
 BIN_DIR="$HOME/.local/bin"
 VENV_DIR="$INSTALL_DIR/venv"
@@ -56,7 +59,7 @@ fi
 
 # Copy files
 echo "Installing to $INSTALL_DIR..."
-cp "$(dirname "$0")/kiro_history.py" "$INSTALL_DIR/kiro_history.py" || { echo "ERROR: Failed to copy kiro_history.py"; exit 1; }
+cp "$SCRIPT_DIR/kiro_history.py" "$INSTALL_DIR/kiro_history.py" || { echo "ERROR: Failed to copy kiro_history.py"; exit 1; }
 
 # Create wrapper script that uses venv python
 cat > "$BIN_DIR/kiro-cli-history" << EOF
@@ -81,4 +84,4 @@ fi
 echo ""
 echo "Installed! Run: kiro-cli-history"
 echo ""
-echo "To uninstall: bash $(dirname "$0")/uninstall.sh"
+echo "To uninstall: bash $SCRIPT_DIR/uninstall.sh"
