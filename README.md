@@ -16,7 +16,7 @@ Kiro CLI has great built-in [conversation persistence](https://kiro.dev/docs/cli
 - **Full-text fuzzy search** — searches every message you and Kiro exchanged, not just titles
 - **Conversation preview** — read through the full exchange with markdown rendering before deciding to resume
 - **One-key resume** — press `Ctrl+R` to jump into Kiro CLI and continue the conversation
-- **Session management** — rename sessions (`F2`) or batch-generate titles for untitled sessions
+- **Session management** — rename sessions (`F2`)
 - **Lazy loading** — fast startup with background session loading; preview loads incrementally
 - **Copy to clipboard** — press `Ctrl+Y` to copy an entire conversation
 - **All session formats** — reads all three Kiro CLI storage versions (v1 SQLite, v2 SQLite, v3 JSONL), covering both `--classic` and new TUI modes
@@ -86,8 +86,8 @@ Run it from anywhere. It searches globally.
 
 Access additional commands:
 - **Toggle --trust-all-tools** — enable/disable the flag on resume/new
-- **Toggle non-interactive sessions** — show/hide sessions with no user messages
-- **Generate titles for N untitled sessions** — batch-generate titles from first user message
+- **Toggle non-interactive sessions** — show/hide background agent sessions (hidden by default)
+- **Toggle untitled sessions** — show/hide sessions with no title (hidden by default)
 
 ### Searching
 
@@ -123,7 +123,7 @@ Kiro CLI stores conversations in three formats depending on the version and mode
 
 - **Lazy loading**: UI displays immediately while sessions load in background
 - **Incremental preview**: Only first 30 messages load initially; press `m` or `Space` for more
-- **8x faster** initial display on large sessions (4s → 0.5s on 2400-message sessions)
+- **13x faster** initial session loading via byte-level JSONL scanning (vs full JSON parsing)
 
 ## How this complements Kiro CLI
 
