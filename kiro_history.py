@@ -184,60 +184,25 @@ class SessionItem(ListItem):
     def __init__(self, session: dict, highlight_query: str = "") -> None:
         super().__init__()
         self.session = session
-        self.highlight_query = highlight_query.lower()
 
     def compose(self) -> ComposeResult:
         raw_ts = (self.session.get("updated_at") or "")[:10]
         try:
             dt = datetime.strptime(raw_ts, "%Y-%m-%d")
-            # %-d is Linux/macOS only; strip leading zero manually for cross-platform
             ts = f"{dt.day} {dt.strftime('%b %Y')}"
         except (ValueError, TypeError):
             ts = raw_ts
         title = (self.session.get("title") or "(untitled)")[:60]
+        title = title.replace("[", "\\[").replace("]", "\\]")
         cwd = os.path.basename(self.session.get("cwd") or "")
         msgs = self.session.get("msg_count", 0)
         dur = self.session.get("duration_min", 0)
         dur_str = "-" if dur == 0 else (f"{dur}m" if dur < 60 else f"{dur // 60}h {dur % 60}m")
-        
-        # Build the display with optional highlight
-        if self.highlight_query:
-            # Highlight matching text in title
-            title_text = self._highlight_text(title, self.highlight_query)
-        else:
-            # Escape Rich markup characters
-            title = title.replace("[", "\\[").replace("]", "\\]")
-            title_text = f"[bold]{title}[/bold]"
-        
         yield Static(
-            f"{title_text}\n"
+            f"[bold]{title}[/bold]\n"
             f"[dim]{cwd}[/dim]  [dim italic]{ts}[/dim italic]  [dim cyan]{msgs} msgs[/dim cyan]  [dim green]{dur_str}[/dim green]",
             markup=True,
         )
-    
-    def _highlight_text(self, text: str, query: str) -> str:
-        """Highlight query matches — bold+underline works regardless of selection color."""
-        result = []
-        i = 0
-        text_lower = text.lower()
-        while i < len(text):
-            pos = text_lower.find(query, i)
-            if pos == -1:
-                # No more matches — append rest (escaped)
-                rest = text[i:].replace("[", "\\[").replace("]", "\\]")
-                result.append(f"[bold]{rest}[/bold]")
-                break
-            # Append text before match (escaped)
-            before = text[i:pos].replace("[", "\\[").replace("]", "\\]")
-            result.append(f"[bold]{before}[/bold]")
-            # Highlight match: bold + underline (visible in both normal and selected state)
-            match = text[pos:pos + len(query)].replace("[", "\\[").replace("]", "\\]")
-            result.append(f"[bold underline]{match}[/bold underline]")
-            i = pos + len(query)
-        else:
-            if i >= len(text):
-                pass  # Already handled
-        return "".join(result)
 
 
 class KiroHistory(App):
@@ -793,8 +758,10 @@ class KiroHistory(App):
         def update_preview_state():
             if self._preview_loading_session_id != session_id:
                 return
-            self._preview_messages = messages
-            self._preview_all_loaded = all_loaded
+            # Don't overwrite if all messages already loaded (e.g. by search)
+            if not self._preview_all_loaded:
+                self._preview_messages = messages
+                self._preview_all_loaded = all_loaded
         self.call_from_thread(update_preview_state)
 
         if not messages:
@@ -813,7 +780,13 @@ class KiroHistory(App):
             ))
 
     def _render_messages(self, messages: list) -> None:
-        """Render a list of messages to preview."""
+        """Render a list of messages to preview (incremental append).
+        
+        Skipped if search has already done a full re-render (_preview_search_executed).
+        """
+        # If a search re-render is active, don't append raw messages on top
+        if self._preview_search_executed:
+            return
         preview = self.query_one("#preview", RichLog)
         for msg in messages:
             role = msg["role"]
