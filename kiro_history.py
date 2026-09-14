@@ -21,22 +21,39 @@ from textual.binding import Binding
 
 # --- Version ---
 
+# Fallback version when git is not available
 VERSION = "v0.1.0-cakel.1"
 
 def _get_version_string() -> str:
-    """Return version string with git short hash if available."""
+    """Return version string from git tags + short hash.
+
+    Examples:
+      repo with tag:    v0.1.0-cakel.1-abc1234
+      repo without tag: abc1234
+      no git:           v0.1.0-cakel.1  (fallback constant)
+    """
     try:
         script_dir = Path(__file__).parent
-        result = subprocess.run(
+        # Try to get latest tag
+        tag_result = subprocess.run(
+            ["git", "-C", str(script_dir), "describe", "--tags", "--abbrev=0"],
+            capture_output=True, text=True, timeout=2
+        )
+        # Get short hash
+        hash_result = subprocess.run(
             ["git", "-C", str(script_dir), "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, timeout=2
         )
-        if result.returncode == 0:
-            short_hash = result.stdout.strip()
-            return f"{VERSION}-{short_hash}"
+        if hash_result.returncode == 0:
+            short_hash = hash_result.stdout.strip()
+            if tag_result.returncode == 0:
+                tag = tag_result.stdout.strip()
+                return f"{tag}-{short_hash}"
+            return short_hash
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
     return VERSION
+
 from textual.containers import Horizontal, Vertical, Center
 from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, Input, Static, ListView, ListItem, RichLog, Button
