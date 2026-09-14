@@ -548,6 +548,7 @@ class KiroHistory(App):
         # Settings
         self._trust_all_tools = True  # Default: enabled
         self._show_non_interactive = True  # Default: show all sessions
+        self._show_untitled = True  # Default: show untitled sessions
         self._viewer_search_query = ""
         # Lazy loading state
         self._preview_messages = []  # Messages loaded so far
@@ -576,14 +577,14 @@ class KiroHistory(App):
             self._toggle_non_interactive
         )
         
-        # Generate titles for untitled sessions
+        # Toggle untitled sessions visibility
+        untitled_status = "shown" if self._show_untitled else "hidden"
         untitled_count = sum(1 for s in self.all_sessions if s.get("title") in [None, "", "(untitled)"])
-        if untitled_count > 0:
-            yield SystemCommand(
-                f"Generate titles for {untitled_count} untitled sessions",
-                "Use kiro-cli to auto-generate titles based on conversation content",
-                self._generate_untitled_titles
-            )
+        yield SystemCommand(
+            f"Toggle untitled sessions (currently {untitled_status}, {untitled_count} sessions)",
+            "Show/hide sessions without a title",
+            self._toggle_untitled
+        )
 
     def _toggle_trust_all_tools(self) -> None:
         self._trust_all_tools = not self._trust_all_tools
@@ -596,31 +597,11 @@ class KiroHistory(App):
         status = "shown" if self._show_non_interactive else "hidden"
         self.notify(f"Non-interactive sessions {status}")
 
-    def _generate_untitled_titles(self) -> None:
-        """Generate titles for untitled sessions using first user message."""
-        untitled = [s for s in self.all_sessions if s.get("title") in [None, "", "(untitled)"]]
-        if not untitled:
-            self.notify("No untitled sessions found")
-            return
-        
-        updated = 0
-        for session in untitled:
-            # Get first user message as title
-            msgs = extract_messages(session, limit=5)
-            user_msgs = [m for m in msgs if m["role"] == "you"]
-            if user_msgs:
-                new_title = user_msgs[0]["text"][:100].strip()
-                if new_title:
-                    if self._update_session_title(session, new_title):
-                        updated += 1
-        
-        if updated > 0:
-            self.notify(f"Updated {updated} session titles")
-            # Reload sessions
-            self._sessions_loading = True
-            self._load_sessions_async()
-        else:
-            self.notify("No sessions could be updated")
+    def _toggle_untitled(self) -> None:
+        self._show_untitled = not self._show_untitled
+        self._refresh_sessions()
+        status = "shown" if self._show_untitled else "hidden"
+        self.notify(f"Untitled sessions {status}")
 
     def _update_session_title(self, session: dict, new_title: str) -> bool:
         """Update session title in the source file."""
@@ -836,14 +817,23 @@ class KiroHistory(App):
 
     def _refresh_sessions(self) -> None:
         """Refresh session list with current filter settings."""
-        if self._show_non_interactive:
-            self.filtered_sessions = self.all_sessions
-        else:
-            # Filter out non-interactive sessions (those without user messages)
-            self.filtered_sessions = [
-                s for s in self.all_sessions
+        filtered = self.all_sessions
+        
+        # Filter non-interactive sessions
+        if not self._show_non_interactive:
+            filtered = [
+                s for s in filtered
                 if s.get("msg_count", 0) > 1  # Has more than just system/init message
             ]
+        
+        # Filter untitled sessions
+        if not self._show_untitled:
+            filtered = [
+                s for s in filtered
+                if s.get("title") not in [None, "", "(untitled)"]
+            ]
+        
+        self.filtered_sessions = filtered
         self._populate_list(self.filtered_sessions)
         search = self.query_one("#search-input", Input)
         if search.value:
