@@ -1208,6 +1208,10 @@ class KiroHistory(App):
             # 1-turn JSONL = Prompt(1) + AssistantMessage(1) = 2
             return msg_count <= 2
         else:
+            # SQLite v2: is_subagent derived from history content
+            # (catches multi-turn subagents that msg_count<=1 would miss)
+            if session.get("is_subagent"):
+                return True
             # SQLite: 1 history entry = 1 full exchange
             return msg_count <= 1
 
