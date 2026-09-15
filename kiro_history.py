@@ -241,11 +241,11 @@ class KiroHistory(App):
             "Show/hide sessions without a title",
             self._toggle_untitled
         )
-        
-        # Save current settings as default
+
+        # --- Load current as Default (bottom, separated) ---
         yield SystemCommand(
-            "Set current settings as default",
-            "Save trust-all-tools, single-turn, untitled visibility to config file",
+            "─── Load current as Default",
+            "Save current settings to kiro-cli-history.json as startup defaults",
             self._save_settings_as_default
         )
 
