@@ -19,6 +19,8 @@ from kiro_history import KiroHistory, SessionItem
 from textual.widgets import Input, ListView, Static
 from tests.fixtures import EXPECTED, FIXTURE_SESSIONS, SQLITE_SESSIONS
 
+pytestmark = pytest.mark.slow
+
 
 # ---------------------------------------------------------------------------
 # Timing constants (tiny fixture → much shorter waits)

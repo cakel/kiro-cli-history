@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from kiro_history import KiroHistory, SessionItem
 from textual.widgets import Input, ListView, RichLog, Static
 
+pytestmark = pytest.mark.slow
+
 LOAD_TIMEOUT = 5.0
 SEARCH_TIMEOUT = 10.0
 POLL = 0.05

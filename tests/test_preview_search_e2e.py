@@ -24,6 +24,8 @@ import session_store
 from kiro_history import KiroHistory, SessionItem
 from textual.widgets import Input, ListView, RichLog, Static
 
+pytestmark = pytest.mark.slow
+
 # ---------------------------------------------------------------------------
 # Timing constants
 # ---------------------------------------------------------------------------

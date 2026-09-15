@@ -283,7 +283,11 @@ class KiroHistory(App):
 
     def _save_settings_as_default(self) -> None:
         """Save current settings to config file (explicit menu action)."""
-        self._apply_save_settings("Settings saved as default")
+        trust = "ON" if self._trust_all_tools else "OFF"
+        single = "shown" if self._show_single_turn else "hidden"
+        untitled = "shown" if self._show_untitled else "hidden"
+        msg = f"Saved defaults: trust-all-tools={trust}, single-turn={single}, untitled={untitled}"
+        self._apply_save_settings(msg)
 
     # Table name allowlist for SQL injection prevention
     _SQL_TABLES = {
