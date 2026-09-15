@@ -282,16 +282,27 @@ class KiroHistory(App):
             self.notify(f"{notify_msg} (save failed: {err})", severity="warning")
 
     def _reset_to_saved_defaults(self) -> None:
-        """Load saved config and apply to current session immediately."""
-        cfg = load_config()
-        self._trust_all_tools = cfg.get("trust_all_tools", _CONFIG_DEFAULTS["trust_all_tools"])
-        self._show_single_turn = cfg.get("show_single_turn", _CONFIG_DEFAULTS["show_single_turn"])
-        self._show_untitled = cfg.get("show_untitled", _CONFIG_DEFAULTS["show_untitled"])
+        """Reset settings to DEFAULT_SETTINGS, apply immediately, persist to json."""
+        self._trust_all_tools = _CONFIG_DEFAULTS["trust_all_tools"]
+        self._show_single_turn = _CONFIG_DEFAULTS["show_single_turn"]
+        self._show_untitled = _CONFIG_DEFAULTS["show_untitled"]
+        # Refresh session list (applies new single-turn / untitled filters)
         self._refresh_sessions()
+        # Update status bar to reflect new session count
+        filtered = self._get_filtered_base()
+        self.query_one("#status-bar", Static).update(
+            f" {len(filtered)} sessions | Ctrl+R resume | / search | Ctrl+P menu"
+        )
+        # Persist so next startup also uses defaults
+        save_config({
+            "trust_all_tools": self._trust_all_tools,
+            "show_single_turn": self._show_single_turn,
+            "show_untitled": self._show_untitled,
+        })
         trust = "ON" if self._trust_all_tools else "OFF"
         single = "shown" if self._show_single_turn else "hidden"
         untitled = "shown" if self._show_untitled else "hidden"
-        self.notify(f"Defaults loaded: trust-all-tools={trust}, single-turn={single}, untitled={untitled}")
+        self.notify(f"Reset to defaults: trust-all-tools={trust}, single-turn={single}, untitled={untitled}")
 
     # Table name allowlist for SQL injection prevention
     _SQL_TABLES = {
