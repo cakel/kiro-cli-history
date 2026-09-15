@@ -106,6 +106,20 @@ if (-not (Test-Path $srcStore)) {
 Copy-Item -LiteralPath $srcStore -Destination (Join-Path $installDir "session_store.py") -Force
 Write-OK "Copied session_store.py -> $installDir"
 
+# Copy config.py (configuration management)
+$srcConfig = Join-Path $SCRIPT_DIR "config.py"
+if (Test-Path $srcConfig) {
+    Copy-Item -LiteralPath $srcConfig -Destination (Join-Path $installDir "config.py") -Force
+    Write-OK "Copied config.py -> $installDir"
+}
+
+# Copy app_log.py (logging module)
+$srcLog = Join-Path $SCRIPT_DIR "app_log.py"
+if (Test-Path $srcLog) {
+    Copy-Item -LiteralPath $srcLog -Destination (Join-Path $installDir "app_log.py") -Force
+    Write-OK "Copied app_log.py -> $installDir"
+}
+
 # Inject current git version and hash into installed script
 $destScript = Join-Path $installDir "kiro_history.py"
 try {

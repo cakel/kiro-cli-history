@@ -69,6 +69,10 @@ echo "Installing to $INSTALL_DIR..."
 cp "$SCRIPT_DIR/kiro_history.py" "$INSTALL_DIR/kiro_history.py" || { echo "ERROR: Failed to copy kiro_history.py"; exit 1; }
 cp "$SCRIPT_DIR/session_store.py" "$INSTALL_DIR/session_store.py" || { echo "ERROR: Failed to copy session_store.py"; exit 1; }
 
+# Copy config.py and app_log.py (optional, graceful if missing)
+[ -f "$SCRIPT_DIR/config.py" ] && cp "$SCRIPT_DIR/config.py" "$INSTALL_DIR/config.py" && echo "Copied config.py"
+[ -f "$SCRIPT_DIR/app_log.py" ] && cp "$SCRIPT_DIR/app_log.py" "$INSTALL_DIR/app_log.py" && echo "Copied app_log.py"
+
 # Inject current git version and hash into installed script
 GIT_HASH=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || true)
 GIT_TAG=$(git -C "$SCRIPT_DIR" describe --tags --abbrev=0 2>/dev/null || true)

@@ -1,0 +1,191 @@
+"""config.py — Configuration management for kiro-cli-history.
+
+Handles reading/writing kiro-cli-history.json with schema versioning.
+Config file is optional — app works with defaults if missing.
+
+Public API:
+    get_data_dir()     -> Path (creates if needed)
+    load_config()      -> dict (settings with defaults applied)
+    save_config(settings: dict) -> bool
+    get_setting(key: str, default=None) -> Any
+"""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+SCHEMA_VERSION = 1
+CONFIG_FILENAME = "kiro-cli-history.json"
+
+# Default settings — used when config file is missing or incomplete
+DEFAULT_SETTINGS = {
+    "trust_all_tools": True,
+    "show_single_turn": False,
+    "show_untitled": False,
+}
+
+
+# ---------------------------------------------------------------------------
+# Path resolution
+# ---------------------------------------------------------------------------
+
+def get_install_dir() -> Path:
+    """Get the installation directory (where kiro_history.py lives)."""
+    # When running from installed location, this file is in install dir
+    # When running from source, use the script location
+    return Path(__file__).parent.resolve()
+
+
+def get_data_dir() -> Path:
+    """Get the data directory for config and logs. Creates if needed."""
+    data_dir = get_install_dir() / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
+
+
+def _get_config_path() -> Path:
+    """Get the full path to the config file."""
+    return get_data_dir() / CONFIG_FILENAME
+
+
+# ---------------------------------------------------------------------------
+# Version string (imported from main module or fallback)
+# ---------------------------------------------------------------------------
+
+def _get_app_version() -> str:
+    """Get the current app version string."""
+    try:
+        # Try to import from kiro_history if available
+        from kiro_history import VERSION
+        return VERSION
+    except ImportError:
+        return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Load / Save
+# ---------------------------------------------------------------------------
+
+def load_config() -> dict:
+    """Load config from file, applying defaults for missing keys.
+    
+    Returns a dict with all settings guaranteed to have values.
+    If file doesn't exist or is invalid, returns defaults.
+    """
+    config_path = _get_config_path()
+    settings = DEFAULT_SETTINGS.copy()
+    
+    if not config_path.exists():
+        return settings
+    
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = json.load(f)
+        
+        # Schema migration placeholder
+        file_schema = data.get("schema_version", 1)
+        if file_schema < SCHEMA_VERSION:
+            # Future: migrate from older schema versions
+            pass
+        
+        # Merge saved settings with defaults (defaults fill gaps)
+        saved_settings = data.get("settings", {})
+        for key in DEFAULT_SETTINGS:
+            if key in saved_settings:
+                settings[key] = saved_settings[key]
+                
+    except (json.JSONDecodeError, OSError, KeyError, TypeError):
+        # Corrupted or unreadable — use defaults
+        pass
+    
+    return settings
+
+
+def save_config(settings: dict) -> bool:
+    """Save settings to config file.
+    
+    Args:
+        settings: Dict of setting key-value pairs to save.
+                  Only keys in DEFAULT_SETTINGS are saved.
+    
+    Returns:
+        True if saved successfully, False otherwise.
+    """
+    config_path = _get_config_path()
+    
+    # Filter to known settings only
+    filtered = {k: v for k, v in settings.items() if k in DEFAULT_SETTINGS}
+    
+    data = {
+        "schema_version": SCHEMA_VERSION,
+        "app_version": _get_app_version(),
+        "settings": filtered,
+    }
+    
+    try:
+        # Atomic write: write to temp, then rename
+        import tempfile
+        data_dir = get_data_dir()
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            suffix=".json",
+            dir=data_dir,
+            delete=False,
+        ) as tmp:
+            json.dump(data, tmp, indent=2, ensure_ascii=False)
+            tmp_path = tmp.name
+        
+        # Replace atomically
+        os.replace(tmp_path, config_path)
+        return True
+        
+    except (OSError, TypeError) as e:
+        # Clean up temp file if rename failed
+        try:
+            if tmp_path:
+                os.unlink(tmp_path)
+        except OSError:
+            pass
+        return False
+
+
+def get_setting(key: str, default=None):
+    """Get a single setting value. Convenience wrapper around load_config."""
+    settings = load_config()
+    return settings.get(key, default)
+
+
+# ---------------------------------------------------------------------------
+# CLI self-check
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    print("=== config.py self-check ===\n")
+    
+    print(f"Install dir: {get_install_dir()}")
+    print(f"Data dir: {get_data_dir()}")
+    print(f"Config path: {_get_config_path()}")
+    print(f"App version: {_get_app_version()}")
+    print()
+    
+    print("Current settings:")
+    settings = load_config()
+    for k, v in settings.items():
+        print(f"  {k}: {v}")
+    print()
+    
+    # Test save
+    print("Testing save...")
+    if save_config(settings):
+        print("  Save successful")
+        print(f"  File contents: {_get_config_path().read_text()}")
+    else:
+        print("  Save failed")
+    
+    print("\n=== OK ===")

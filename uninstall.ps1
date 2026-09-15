@@ -59,11 +59,45 @@ if (Test-Path $venvDir) {
 
 # -- 4. Remove install directory (includes venv) --
 if (Test-Path $installDir) {
-    try {
-        Remove-Item $installDir -Recurse -Force -ErrorAction Stop
-        Write-OK "Removed $installDir"
-    } catch {
-        Write-Warn "Could not remove ${installDir}: $_"
+    # Check for data directory (config and logs)
+    $dataDir = Join-Path $installDir "data"
+    if (Test-Path $dataDir) {
+        Write-Host ""
+        Write-Host "Found configuration and logs in: $dataDir" -ForegroundColor Yellow
+        $response = Read-Host "Delete config and logs? (y/N)"
+        if ($response -ne 'y' -and $response -ne 'Y') {
+            # Move data dir to temp location, delete install dir, restore data
+            $tempDataDir = Join-Path $env:TEMP "kiro-cli-history-data-backup"
+            try {
+                if (Test-Path $tempDataDir) { Remove-Item $tempDataDir -Recurse -Force }
+                Move-Item $dataDir $tempDataDir -Force
+                Remove-Item $installDir -Recurse -Force -ErrorAction Stop
+                # Recreate install dir and restore data
+                New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+                Move-Item $tempDataDir $dataDir -Force
+                Write-OK "Removed program files, kept config and logs"
+            } catch {
+                Write-Warn "Could not preserve data: $_"
+                # Fallback: just remove everything
+                Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        } else {
+            # User chose to delete everything
+            try {
+                Remove-Item $installDir -Recurse -Force -ErrorAction Stop
+                Write-OK "Removed $installDir (including config and logs)"
+            } catch {
+                Write-Warn "Could not remove ${installDir}: $_"
+            }
+        }
+    } else {
+        # No data dir, just remove everything
+        try {
+            Remove-Item $installDir -Recurse -Force -ErrorAction Stop
+            Write-OK "Removed $installDir"
+        } catch {
+            Write-Warn "Could not remove ${installDir}: $_"
+        }
     }
 } else {
     Write-Info "$installDir not found (already removed?)"
