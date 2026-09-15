@@ -53,17 +53,62 @@ if (Test-Path $batPath) {
 }
 
 # -- 3. Remove virtual environment --
+# (venv is inside installDir; removed when installDir is deleted in step 4)
 if (Test-Path $venvDir) {
-    Write-Info "Removing virtual environment: $venvDir"
+    Write-Info "Virtual environment will be removed with install directory: $venvDir"
 }
 
 # -- 4. Remove install directory (includes venv) --
 if (Test-Path $installDir) {
-    try {
-        Remove-Item $installDir -Recurse -Force -ErrorAction Stop
-        Write-OK "Removed $installDir"
-    } catch {
-        Write-Warn "Could not remove ${installDir}: $_"
+    # Check for data directory (config and logs)
+    $dataDir = Join-Path $installDir "data"
+    if (Test-Path $dataDir) {
+        Write-Host ""
+        Write-Host "Found configuration and logs in: $dataDir" -ForegroundColor Yellow
+        $response = Read-Host "Delete config and logs? (y/N)"
+        if ($response -ne 'y' -and $response -ne 'Y') {
+            # Move data dir to temp location, delete install dir, restore data
+            $tempDataDir = Join-Path $env:TEMP "kiro-cli-history-data-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            try {
+                if (Test-Path $tempDataDir) { Remove-Item $tempDataDir -Recurse -Force }
+                Move-Item $dataDir $tempDataDir -Force
+                Remove-Item $installDir -Recurse -Force -ErrorAction Stop
+                # Recreate install dir and restore data
+                New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+                Move-Item $tempDataDir $dataDir -Force
+                Write-OK "Removed program files, kept config and logs"
+            } catch {
+                Write-Warn "Could not preserve data: $_"
+                # Try to restore data from temp if it exists
+                if (Test-Path $tempDataDir) {
+                    try {
+                        if (-not (Test-Path $installDir)) {
+                            New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+                        }
+                        Move-Item $tempDataDir $dataDir -Force -ErrorAction SilentlyContinue
+                        Write-Info "Restored config and logs from backup"
+                    } catch {
+                        Write-Warn "Data backup remains at: $tempDataDir"
+                    }
+                }
+            }
+        } else {
+            # User chose to delete everything
+            try {
+                Remove-Item $installDir -Recurse -Force -ErrorAction Stop
+                Write-OK "Removed $installDir (including config and logs)"
+            } catch {
+                Write-Warn "Could not remove ${installDir}: $_"
+            }
+        }
+    } else {
+        # No data dir, just remove everything
+        try {
+            Remove-Item $installDir -Recurse -Force -ErrorAction Stop
+            Write-OK "Removed $installDir"
+        } catch {
+            Write-Warn "Could not remove ${installDir}: $_"
+        }
     }
 } else {
     Write-Info "$installDir not found (already removed?)"
