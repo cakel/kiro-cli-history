@@ -22,11 +22,37 @@ fi
 
 # Remove install directory (includes venv)
 if [ -d "$INSTALL_DIR" ]; then
-    if [ -d "$VENV_DIR" ]; then
-        echo "Removing virtual environment: $VENV_DIR"
+    DATA_DIR="$INSTALL_DIR/data"
+    if [ -d "$DATA_DIR" ]; then
+        echo ""
+        echo "Found configuration and logs in: $DATA_DIR"
+        printf "Delete config and logs? (y/N) "
+        read -r response
+        if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
+            # Delete everything including data
+            if [ -d "$VENV_DIR" ]; then
+                echo "Removing virtual environment: $VENV_DIR"
+            fi
+            rm -rf "$INSTALL_DIR"
+            echo "Removed $INSTALL_DIR (including config and logs)"
+        else
+            # Keep data, remove everything else
+            TEMP_DATA=$(mktemp -d)
+            mv "$DATA_DIR" "$TEMP_DATA/data"
+            rm -rf "$INSTALL_DIR"
+            mkdir -p "$INSTALL_DIR"
+            mv "$TEMP_DATA/data" "$DATA_DIR"
+            rm -rf "$TEMP_DATA"
+            echo "Removed program files, kept config and logs"
+        fi
+    else
+        # No data dir, just remove everything
+        if [ -d "$VENV_DIR" ]; then
+            echo "Removing virtual environment: $VENV_DIR"
+        fi
+        rm -rf "$INSTALL_DIR"
+        echo "Removed $INSTALL_DIR"
     fi
-    rm -rf "$INSTALL_DIR"
-    echo "Removed $INSTALL_DIR"
 fi
 
 echo ""

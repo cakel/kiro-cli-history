@@ -14,8 +14,21 @@ cleanup_on_error() {
     trap - ERR
     echo ""
     echo "ERROR: Installation failed. Cleaning up..."
+    # Preserve existing data/ (config and logs) if present
+    DATA_BACKUP=""
+    if [ -d "$INSTALL_DIR/data" ]; then
+        DATA_BACKUP=$(mktemp -d)
+        mv "$INSTALL_DIR/data" "$DATA_BACKUP/data" 2>/dev/null || DATA_BACKUP=""
+    fi
     rm -rf "$INSTALL_DIR" 2>/dev/null || true
     rm -f "$BIN_DIR/kiro-cli-history" 2>/dev/null || true
+    # Restore data/ if we backed it up
+    if [ -n "$DATA_BACKUP" ] && [ -d "$DATA_BACKUP/data" ]; then
+        mkdir -p "$INSTALL_DIR"
+        mv "$DATA_BACKUP/data" "$INSTALL_DIR/data" 2>/dev/null || true
+        rm -rf "$DATA_BACKUP"
+        echo "Config and logs preserved in $INSTALL_DIR/data"
+    fi
     exit 1
 }
 
@@ -68,6 +81,13 @@ fi
 echo "Installing to $INSTALL_DIR..."
 cp "$SCRIPT_DIR/kiro_history.py" "$INSTALL_DIR/kiro_history.py" || { echo "ERROR: Failed to copy kiro_history.py"; exit 1; }
 cp "$SCRIPT_DIR/session_store.py" "$INSTALL_DIR/session_store.py" || { echo "ERROR: Failed to copy session_store.py"; exit 1; }
+
+# Copy config.py and app_log.py (required for settings and logging)
+[ -f "$SCRIPT_DIR/config.py" ] || { echo "ERROR: config.py not found in $SCRIPT_DIR"; exit 1; }
+[ -f "$SCRIPT_DIR/app_log.py" ] || { echo "ERROR: app_log.py not found in $SCRIPT_DIR"; exit 1; }
+cp "$SCRIPT_DIR/config.py" "$INSTALL_DIR/config.py" || { echo "ERROR: Failed to copy config.py"; exit 1; }
+cp "$SCRIPT_DIR/app_log.py" "$INSTALL_DIR/app_log.py" || { echo "ERROR: Failed to copy app_log.py"; exit 1; }
+echo "Copied config.py and app_log.py"
 
 # Inject current git version and hash into installed script
 GIT_HASH=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || true)

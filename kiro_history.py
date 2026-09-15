@@ -31,6 +31,21 @@ from session_store import (
     start_cache_prebuild,
 )
 
+# --- Config / logging ---
+try:
+    from config import load_config, save_config, DEFAULT_SETTINGS as _CONFIG_DEFAULTS
+    from app_log import init_logging, log_perf, log_warn, log_error, close_logging
+except ImportError:
+    # Graceful degradation if modules not available
+    _CONFIG_DEFAULTS = {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False}
+    def load_config(): return _CONFIG_DEFAULTS.copy()
+    def save_config(s): return (False, "config module not available")
+    def init_logging(): pass
+    def log_perf(*a, **kw): pass
+    def log_warn(*a, **kw): pass
+    def log_error(*a, **kw): pass
+    def close_logging(): pass
+
 # --- Version ---
 
 # Fallback version when git is not available
@@ -295,10 +310,11 @@ class KiroHistory(App):
         self.all_sessions = []
         self.filtered_sessions = []
         self.selected_session = None
-        # Settings
-        self._trust_all_tools = True  # Default: enabled
-        self._show_single_turn = False  # Default: hide single-turn sessions
-        self._show_untitled = False  # Default: hide untitled sessions
+        # Load settings from config (or use defaults)
+        cfg = load_config()
+        self._trust_all_tools = cfg.get("trust_all_tools", _CONFIG_DEFAULTS["trust_all_tools"])
+        self._show_single_turn = cfg.get("show_single_turn", _CONFIG_DEFAULTS["show_single_turn"])
+        self._show_untitled = cfg.get("show_untitled", _CONFIG_DEFAULTS["show_untitled"])
         self._viewer_search_query = ""
         # Lazy loading state
         self._preview_messages = []  # Messages loaded so far
@@ -314,6 +330,8 @@ class KiroHistory(App):
         self._preview_search_matches: list[int] = []  # Indices into _preview_messages
         self._preview_search_current = -1   # Current match index (-1 = no selection)
         self._preview_msg_line_offsets: dict[int, int] = {}  # msg_index → RichLog line number
+        # Timing for perf logging
+        self._start_time = None
 
     def get_system_commands(self, screen):
         """Add custom commands to the command palette."""
@@ -344,6 +362,13 @@ class KiroHistory(App):
             "Show/hide sessions without a title",
             self._toggle_untitled
         )
+        
+        # Save current settings as default
+        yield SystemCommand(
+            "Set current settings as default",
+            "Save trust-all-tools, single-turn, untitled visibility to config file",
+            self._save_settings_as_default
+        )
 
     def _toggle_trust_all_tools(self) -> None:
         self._trust_all_tools = not self._trust_all_tools
@@ -361,6 +386,21 @@ class KiroHistory(App):
         self._refresh_sessions()
         status = "shown" if self._show_untitled else "hidden"
         self.notify(f"Untitled sessions {status}")
+
+    def _save_settings_as_default(self) -> None:
+        """Save current settings to config file."""
+        settings = {
+            "trust_all_tools": self._trust_all_tools,
+            "show_single_turn": self._show_single_turn,
+            "show_untitled": self._show_untitled,
+        }
+        ok, err = save_config(settings)
+        if ok:
+            log_perf("config_saved", **settings)
+            self.notify("Settings saved as default")
+        else:
+            log_error("config_save_failed", error=err)
+            self.notify(f"Failed to save settings: {err}", severity="error")
 
     # Table name allowlist for SQL injection prevention
     _SQL_TABLES = {
@@ -470,19 +510,26 @@ class KiroHistory(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        import time
+        self._start_time = time.perf_counter()
         # Show loading indicator in the list area
         list_view = self.query_one("#session-list", ListView)
         list_view.append(ListItem(Static("Loading sessions...", classes="loading-hint")))
-        # Load sessions in background
+        # Load sessions in background (init_logging runs inside worker to avoid I/O blocking)
         self._load_sessions_async()
 
     @work(thread=True)
     def _load_sessions_async(self) -> None:
         """Load sessions in background thread."""
+        import time
+        # Init logging here (worker thread) to avoid blocking on_mount with I/O
+        init_logging()
+        t0 = time.perf_counter()
         try:
             sessions = get_sessions()
         except Exception as e:
             self._sessions_loading = False
+            log_error("load_sessions_failed", error=str(e))
             self.call_from_thread(
                 self.notify,
                 f"Failed to load sessions: {e}",
@@ -493,6 +540,11 @@ class KiroHistory(App):
                 " Error loading sessions | Check permissions"
             )
             return
+        
+        load_time = time.perf_counter() - t0
+        # Log app start with session count and load time
+        total_time = time.perf_counter() - self._start_time if self._start_time else load_time
+        log_perf("app_start", version=VERSION, sessions=len(sessions), load_time=load_time, total_time=total_time)
             
         self.all_sessions = sessions
         self._sessions_loading = False
@@ -663,13 +715,20 @@ class KiroHistory(App):
 
     @work(thread=True)
     def _do_search(self, query: str, search_id: int = 0) -> None:
+        import time
+        t0 = time.perf_counter()
         # Search within currently filtered base (respects single-turn/untitled toggles)
         base = self._get_filtered_base()
         results = search_sessions(query, base)
+        search_time = time.perf_counter() - t0
         
         # Check if this search is still current (not superseded by newer search)
         if search_id and self._search_id != search_id:
             return  # Stale result, discard
+        
+        # Log search performance (only for non-stale results)
+        cache_status = "warm" if any(s.get("_search_text") is not None for s in base[:10]) else "cold"
+        log_perf("search", query_len=len(query), results=len(results), time=search_time, cache=cache_status)
         
         # Update filtered_sessions on main thread to avoid race condition
         def update_results():
@@ -898,16 +957,20 @@ class KiroHistory(App):
             return
         session_id = self.selected_session.get("session_id", "")
         if not session_id:
+            log_warn("resume_no_id", title=self.selected_session.get("title", ""))
             self.notify("Cannot resume: session has no ID", severity="error")
             return
         cwd = self.selected_session.get("cwd", "")
         if not cwd or not os.path.isdir(cwd):
+            log_warn("resume_dir_not_found", session_id=session_id, cwd=cwd)
             self.notify(f"Directory not found: {cwd}", severity="error")
             return
+        log_perf("resume", session_id=session_id)
         self.exit(result=("resume", self.selected_session, self._trust_all_tools))
 
     def action_new_session(self) -> None:
         """Start a new kiro-cli session in the current directory."""
+        log_perf("new_session")
         self.exit(result=("new", None, self._trust_all_tools))
 
     def action_focus_search(self) -> None:
@@ -1440,6 +1503,9 @@ class KiroHistory(App):
 # --- Entry Point ---
 
 def main():
+    import atexit
+    atexit.register(close_logging)
+    
     app = KiroHistory()
     result = app.run()
 
