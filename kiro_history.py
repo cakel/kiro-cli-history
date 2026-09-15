@@ -35,10 +35,8 @@ from session_store import (
 try:
     from config import load_config, save_config
     from app_log import init_logging, log_perf, log_warn, log_error, close_logging
-    _HAS_CONFIG = True
 except ImportError:
     # Graceful degradation if modules not available
-    _HAS_CONFIG = False
     def load_config(): return {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False}
     def save_config(s): return False
     def init_logging(): pass

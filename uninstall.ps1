@@ -78,8 +78,18 @@ if (Test-Path $installDir) {
                 Write-OK "Removed program files, kept config and logs"
             } catch {
                 Write-Warn "Could not preserve data: $_"
-                # Fallback: just remove everything
-                Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
+                # Try to restore data from temp if it exists
+                if (Test-Path $tempDataDir) {
+                    try {
+                        if (-not (Test-Path $installDir)) {
+                            New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+                        }
+                        Move-Item $tempDataDir $dataDir -Force -ErrorAction SilentlyContinue
+                        Write-Info "Restored config and logs from backup"
+                    } catch {
+                        Write-Warn "Data backup remains at: $tempDataDir"
+                    }
+                }
             }
         } else {
             # User chose to delete everything

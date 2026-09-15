@@ -127,6 +127,7 @@ def save_config(settings: dict) -> bool:
         "settings": filtered,
     }
     
+    tmp_path = None
     try:
         # Atomic write: write to temp, then rename
         import tempfile
@@ -147,11 +148,11 @@ def save_config(settings: dict) -> bool:
         
     except (OSError, TypeError) as e:
         # Clean up temp file if rename failed
-        try:
-            if tmp_path:
+        if tmp_path:
+            try:
                 os.unlink(tmp_path)
-        except OSError:
-            pass
+            except OSError:
+                pass
         return False
 
 

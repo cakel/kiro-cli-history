@@ -19,7 +19,7 @@ import gzip
 import os
 import shutil
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -136,8 +136,14 @@ def init_logging() -> None:
     - Performs log rotation if needed
     - Cleans up old log files
     - Opens log file for appending
+    
+    Safe to call multiple times — subsequent calls are no-ops.
     """
     global _log_file, _app_version
+    
+    # Already initialized — skip
+    if _log_file is not None:
+        return
     
     _app_version = _get_app_version()
     
@@ -177,8 +183,9 @@ def _format_kwargs(kwargs: dict) -> str:
     """Format kwargs as key=value pairs."""
     parts = []
     for k, v in kwargs.items():
-        if isinstance(v, str) and (" " in v or "=" in v):
-            parts.append(f'{k}="{v}"')
+        if isinstance(v, str) and (" " in v or "=" in v or '"' in v):
+            escaped = v.replace('"', '\\"')
+            parts.append(f'{k}="{escaped}"')
         elif isinstance(v, float):
             parts.append(f"{k}={v:.3f}")
         else:
