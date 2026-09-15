@@ -38,7 +38,7 @@ try:
     from app_log import init_logging, log_perf, log_warn, log_error, close_logging
 except ImportError:
     # Graceful degradation if modules not available
-    _CONFIG_DEFAULTS = {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False}
+    _CONFIG_DEFAULTS = {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False, "theme": "textual-dark"}
     def load_config(): return _CONFIG_DEFAULTS.copy()
     def save_config(s): return (False, "config module not available")
     def init_logging(): pass
@@ -99,7 +99,7 @@ from rich.markdown import Markdown
 
 
 # --- UI Components (imported from widgets.py) ---
-from widgets import PreviewSearchInput, RenameScreen, SessionItem
+from widgets import PreviewSearchInput, RenameScreen, ThemePickerScreen, SessionItem
 
 # --- Constants ---
 PREVIEW_BATCH_SIZE = 30  # Messages per batch for lazy loading
@@ -198,6 +198,7 @@ class KiroHistory(App):
         self._trust_all_tools = cfg.get("trust_all_tools", _CONFIG_DEFAULTS["trust_all_tools"])
         self._show_single_turn = cfg.get("show_single_turn", _CONFIG_DEFAULTS["show_single_turn"])
         self._show_untitled = cfg.get("show_untitled", _CONFIG_DEFAULTS["show_untitled"])
+        self._theme = cfg.get("theme", _CONFIG_DEFAULTS["theme"])
         self._viewer_search_query = ""
         # Lazy loading state
         self._preview_messages = []  # Messages loaded so far
@@ -246,12 +247,29 @@ class KiroHistory(App):
             self._toggle_untitled
         )
 
+        # Theme selection (opens picker screen)
+        yield SystemCommand(
+            f"Set Theme… (current: {self._theme})",
+            "Open theme picker to change and save the colour theme",
+            self._open_theme_picker
+        )
+
         # --- Reset to Default Settings (bottom, separated) ---
         yield SystemCommand(
             "─── Reset to Default Settings",
             "Load kiro-cli-history.json and apply saved settings immediately",
             self._reset_to_saved_defaults
         )
+
+    def _open_theme_picker(self) -> None:
+        """Push theme picker screen; apply + save on selection."""
+        themes = sorted(self.available_themes)
+        def on_theme_chosen(theme_name: str | None) -> None:
+            if theme_name:
+                self._theme = theme_name
+                self.theme = theme_name
+                self._apply_save_settings(f"Theme: {theme_name}")
+        self.push_screen(ThemePickerScreen(themes, self._theme), on_theme_chosen)
 
     def _toggle_trust_all_tools(self) -> None:
         self._trust_all_tools = not self._trust_all_tools
@@ -276,6 +294,7 @@ class KiroHistory(App):
             "trust_all_tools": self._trust_all_tools,
             "show_single_turn": self._show_single_turn,
             "show_untitled": self._show_untitled,
+            "theme": self._theme,
         }
         ok, err = save_config(settings)
         if ok:
@@ -290,6 +309,9 @@ class KiroHistory(App):
         self._trust_all_tools = _CONFIG_DEFAULTS["trust_all_tools"]
         self._show_single_turn = _CONFIG_DEFAULTS["show_single_turn"]
         self._show_untitled = _CONFIG_DEFAULTS["show_untitled"]
+        self._theme = _CONFIG_DEFAULTS["theme"]
+        if self._theme in self.available_themes:
+            self.theme = self._theme
         # Refresh session list (applies new single-turn / untitled filters)
         self._refresh_sessions()
         # Update status bar to reflect new session count
@@ -302,12 +324,13 @@ class KiroHistory(App):
             "trust_all_tools": self._trust_all_tools,
             "show_single_turn": self._show_single_turn,
             "show_untitled": self._show_untitled,
+            "theme": self._theme,
         })
         trust = "ON" if self._trust_all_tools else "OFF"
         single = "shown" if self._show_single_turn else "hidden"
         untitled = "shown" if self._show_untitled else "hidden"
         self.notify(
-            f"trust-all-tools={trust}  single-turn={single}  untitled={untitled}",
+            f"trust-all-tools={trust}  single-turn={single}  untitled={untitled}  theme={self._theme}",
             title="Reset to Default Settings",
             timeout=5,
         )
@@ -424,6 +447,10 @@ class KiroHistory(App):
     def on_mount(self) -> None:
         import time
         self._start_time = time.perf_counter()
+        # Apply saved theme
+        if self._theme in self.available_themes:
+            self.theme = self._theme
+            log_perf("theme_applied", theme=self._theme)
         # Show loading indicator in the list area and status bar
         list_view = self.query_one("#session-list", ListView)
         list_view.append(ListItem(Static("Loading sessions...", classes="loading-hint")))
@@ -460,7 +487,7 @@ class KiroHistory(App):
         # Log app start with session count, load time, and current settings
         total_time = time.perf_counter() - self._start_time if self._start_time else load_time
         log_perf("app_start", version=VERSION, sessions=len(sessions), load_time=load_time, total_time=total_time,
-                 trust_all_tools=self._trust_all_tools, show_single_turn=self._show_single_turn, show_untitled=self._show_untitled)
+                 trust_all_tools=self._trust_all_tools, show_single_turn=self._show_single_turn, show_untitled=self._show_untitled, theme=self._theme)
         
         # Update shared state on main thread to avoid race conditions
         def update_sessions():
@@ -509,6 +536,10 @@ class KiroHistory(App):
 
     def on_key(self, event) -> None:
         """Handle key events for navigation."""
+        # Skip custom key handling when a modal screen is active
+        if not isinstance(self.screen, type(self.screen_stack[0])):
+            return  # Let modal screens handle their own keys
+        
         search_input = self.query_one("#search-input", Input)
         list_view = self.query_one("#session-list", ListView)
         preview = self.query_one("#preview", RichLog)

@@ -27,12 +27,20 @@ DEFAULT_SETTINGS = {
     "trust_all_tools": True,
     "show_single_turn": False,
     "show_untitled": False,
+    "theme": "textual-dark",
 }
 
 
 # ---------------------------------------------------------------------------
 # Path resolution
 # ---------------------------------------------------------------------------
+
+# Fixed data directory — always use installed location regardless of where code runs
+if os.name == "nt":
+    _DATA_DIR = Path(r"C:\ProgramData\kiro-cli-history\data")
+else:
+    _DATA_DIR = Path.home() / ".local" / "share" / "kiro-cli-history" / "data"
+
 
 def get_install_dir() -> Path:
     """Get the installation directory (where kiro_history.py lives)."""
@@ -43,9 +51,8 @@ def get_install_dir() -> Path:
 
 def get_data_dir() -> Path:
     """Get the data directory for config and logs. Creates if needed."""
-    data_dir = get_install_dir() / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return _DATA_DIR
 
 
 def _get_config_path() -> Path:

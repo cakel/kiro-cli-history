@@ -17,7 +17,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, ListItem, Static
+from textual.widgets import Button, Input, ListItem, ListView, Static
 
 
 class PreviewSearchInput(Input):
@@ -137,3 +137,66 @@ class SessionItem(ListItem):
             f"[dim]{cwd}[/dim]  [dim italic]{ts}[/dim italic]  [dim cyan]{msgs} msgs[/dim cyan]  [dim green]{dur_str}[/dim green]",
             markup=True,
         )
+
+
+class ThemePickerScreen(ModalScreen):
+    """Modal list for picking a theme. Dismisses with the chosen theme name or None."""
+
+    CSS = """
+    ThemePickerScreen {
+        align: center middle;
+    }
+    #theme-dialog {
+        width: 60;
+        height: auto;
+        max-height: 80%;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #theme-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #theme-list {
+        height: auto;
+        max-height: 20;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, themes: list[str], current: str):
+        super().__init__()
+        self._themes = themes
+        self._current = current
+
+    def compose(self):
+        with Vertical(id="theme-dialog"):
+            yield Static("Select Theme", id="theme-title")
+            items = []
+            for name in self._themes:
+                label = f"✓ {name}" if name == self._current else f"  {name}"
+                items.append(ListItem(Static(label), id=f"theme-{name}"))
+            yield ListView(*items, id="theme-list")
+
+    def on_mount(self) -> None:
+        lv = self.query_one("#theme-list", ListView)
+        # Focus the current theme item
+        for i, name in enumerate(self._themes):
+            if name == self._current:
+                lv.index = i
+                break
+        lv.focus()
+
+    @on(ListView.Selected)
+    def _on_theme_selected(self, event: ListView.Selected) -> None:
+        # id is "theme-{name}" — strip prefix
+        theme_name = event.item.id[len("theme-"):]
+        self.dismiss(theme_name)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
