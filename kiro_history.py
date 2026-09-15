@@ -529,6 +529,10 @@ class KiroHistory(App):
 
         # Session list navigation: j/k for up/down
         if list_view.has_focus:
+            # Skip if Command Palette is open — let it handle Enter
+            from textual.command import CommandPalette
+            if CommandPalette.is_open(self):
+                return
             # Enter: move focus to preview
             if event.key == "enter":
                 event.prevent_default()
