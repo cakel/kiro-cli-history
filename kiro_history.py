@@ -1441,7 +1441,7 @@ def main():
     if result and isinstance(result, tuple) and result[0] == "resume":
         session = result[1]
         trust_all_tools = result[2] if len(result) > 2 else True
-        cwd = session["cwd"]
+        cwd = session.get("cwd", "")
         session_id = session.get("session_id", "")
         print(f"\nResuming session: {session.get('title', '(untitled)')}")
         print(f"Session ID: {session_id}")
