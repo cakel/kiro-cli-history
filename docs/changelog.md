@@ -3,6 +3,30 @@
 Upstream: https://github.com/prabhugr/kiro-cli-history  
 This fork: https://github.com/cakel/kiro-cli-history
 
+## v0.1.0-cakel.6
+
+### Theme setting
+- Theme saved to `kiro-cli-history.json` (default: `textual-dark`)
+- `ThemePickerScreen` modal for selecting themes via Command Palette ("Set Theme…")
+- Textual's built-in "Theme" command filtered out to avoid duplicate
+
+### Fixed data directory
+- Development and installed environments now use the same path:
+  - Windows: `C:\ProgramData\kiro-cli-history\data`
+  - Unix: `~/.local/share/kiro-cli-history/data`
+- Override with `KIRO_HISTORY_DATA_DIR` environment variable
+
+### UI/UX improvements
+- Session list: PageUp/Down/Home/End now moves selection index (not just scroll)
+- Modal screen key handling: main app no longer intercepts keys when modal is active
+- Easter egg: `EasterEggHeader` shows GitHub link when header is expanded (click to toggle)
+
+### Code quality
+- Exception handling: `except Exception` → `except NoMatches` (specific)
+- e2e tests: 4 new theme picker tests added
+
+---
+
 ## v0.1.0-cakel.5
 
 ### Auto-save settings
