@@ -87,30 +87,40 @@ def _load_sqlite_history(session: dict) -> list | None:
     return None
 
 
-def _extract_messages_from_history(history, limit=None):
+def _extract_messages_from_history(history, limit=None, offset=0):
     messages = []
+    skipped = 0
     for entry in history:
         user = entry.get("user", {})
         content = user.get("content", {})
         if "Prompt" in content:
             prompt_text = content["Prompt"].get("prompt", "")
             if prompt_text:
-                messages.append({"role": "you", "text": prompt_text})
-                if limit and len(messages) >= limit:
-                    return messages
+                if skipped < offset:
+                    skipped += 1
+                else:
+                    messages.append({"role": "you", "text": prompt_text})
+                    if limit and len(messages) >= limit:
+                        return messages
         assistant = entry.get("assistant", {})
         if isinstance(assistant, dict):
             a_content = assistant.get("content", {})
             if "Text" in a_content:
-                messages.append({"role": "kiro", "text": a_content["Text"]})
-                if limit and len(messages) >= limit:
-                    return messages
+                if skipped < offset:
+                    skipped += 1
+                else:
+                    messages.append({"role": "kiro", "text": a_content["Text"]})
+                    if limit and len(messages) >= limit:
+                        return messages
             elif "Response" in assistant:
                 resp = assistant["Response"]
                 if isinstance(resp, dict) and resp.get("content"):
-                    messages.append({"role": "kiro", "text": resp["content"]})
-                    if limit and len(messages) >= limit:
-                        return messages
+                    if skipped < offset:
+                        skipped += 1
+                    else:
+                        messages.append({"role": "kiro", "text": resp["content"]})
+                        if limit and len(messages) >= limit:
+                            return messages
             elif "ToolUse" in assistant:
                 tu = assistant["ToolUse"]
                 if isinstance(tu, dict):
@@ -121,9 +131,12 @@ def _extract_messages_from_history(history, limit=None):
                     if tool_names:
                         display = f"{display}\n[tools: {tool_names}]" if display else f"[tools: {tool_names}]"
                     if display:
-                        messages.append({"role": "kiro", "text": display})
-                        if limit and len(messages) >= limit:
-                            return messages
+                        if skipped < offset:
+                            skipped += 1
+                        else:
+                            messages.append({"role": "kiro", "text": display})
+                            if limit and len(messages) >= limit:
+                                return messages
     return messages
 
 
@@ -520,12 +533,7 @@ def extract_messages(session: dict, limit=None, offset: int = 0) -> list:
         history = None
 
     if history is not None:
-        msgs = _extract_messages_from_history(history, limit=None if offset else limit)
-        if offset:
-            msgs = msgs[offset:]
-            if limit:
-                msgs = msgs[:limit]
-        return msgs
+        return _extract_messages_from_history(history, limit=limit, offset=offset)
 
     jsonl_path = session.get("jsonl_path", "")
     if not jsonl_path:
