@@ -242,9 +242,9 @@ class KiroHistory(App):
             self._toggle_untitled
         )
 
-        # --- Reset to saved defaults (bottom, separated) ---
+        # --- Reset to Default Settings (bottom, separated) ---
         yield SystemCommand(
-            "─── Reset to saved defaults",
+            "─── Reset to Default Settings",
             "Load kiro-cli-history.json and apply saved settings immediately",
             self._reset_to_saved_defaults
         )
