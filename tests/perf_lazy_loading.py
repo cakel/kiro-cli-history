@@ -3,7 +3,7 @@ import sys
 import time
 sys.path.insert(0, r'D:\Work\kiro-cli-history')
 
-from kiro_history import get_sessions, extract_messages
+from session_store import get_sessions, extract_messages
 from rich.text import Text
 from rich.markdown import Markdown
 

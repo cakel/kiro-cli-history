@@ -60,8 +60,7 @@ def _get_config_path() -> Path:
 def _get_app_version() -> str:
     """Get the current app version string."""
     try:
-        # Try to import from kiro_history if available
-        from kiro_history import VERSION
+        from _version import VERSION
         return VERSION
     except ImportError:
         return "unknown"

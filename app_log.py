@@ -63,7 +63,7 @@ def _get_log_path() -> Path:
 def _get_app_version() -> str:
     """Get the current app version string."""
     try:
-        from kiro_history import VERSION
+        from _version import VERSION
         return VERSION
     except ImportError:
         return "unknown"
