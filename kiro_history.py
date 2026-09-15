@@ -490,11 +490,11 @@ class KiroHistory(App):
         # Kick off background cache prebuild so subsequent searches are instant
         start_cache_prebuild(sessions)
 
-    def _populate_list(self, sessions, highlight_query: str = ""):
+    def _populate_list(self, sessions):
         list_view = self.query_one("#session-list", ListView)
         list_view.clear()
         for session in sessions:
-            list_view.append(SessionItem(session, highlight_query))
+            list_view.append(SessionItem(session))
 
     # --- Search ---
 
@@ -665,7 +665,7 @@ class KiroHistory(App):
             if search_id and self._search_id != search_id:
                 return
             self.filtered_sessions = results
-            self._populate_list(results, query)
+            self._populate_list(results)
             status_text = f" {len(results)}/{len(self.all_sessions)} sessions"
             if query:
                 status_text += f" matching '{query}'"

@@ -115,7 +115,7 @@ class RenameScreen(ModalScreen):
 class SessionItem(ListItem):
     """A single session row in the list."""
 
-    def __init__(self, session: dict, highlight_query: str = "") -> None:
+    def __init__(self, session: dict) -> None:
         super().__init__()
         self.session = session
 

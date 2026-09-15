@@ -187,10 +187,11 @@ if __name__ == "__main__":
     
     # Test save
     print("Testing save...")
-    if save_config(settings):
+    ok, err = save_config(settings)
+    if ok:
         print("  Save successful")
         print(f"  File contents: {_get_config_path().read_text()}")
     else:
-        print("  Save failed")
+        print(f"  Save failed: {err}")
     
     print("\n=== OK ===")
