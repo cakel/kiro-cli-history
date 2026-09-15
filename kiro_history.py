@@ -93,13 +93,13 @@ def _get_version_string() -> str:
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.message import Message
-from textual.widgets import Footer, Header, Input, Static, ListView, ListItem, RichLog, Button
+from textual.widgets import Footer, Input, Static, ListView, ListItem, RichLog, Button
 from rich.text import Text
 from rich.markdown import Markdown
 
 
 # --- UI Components (imported from widgets.py) ---
-from widgets import PreviewSearchInput, RenameScreen, ThemePickerScreen, SessionItem
+from widgets import PreviewSearchInput, RenameScreen, ThemePickerScreen, SessionItem, EasterEggHeader
 
 # --- Constants ---
 PREVIEW_BATCH_SIZE = 30  # Messages per batch for lazy loading
@@ -109,6 +109,29 @@ class KiroHistory(App):
     """Kiro CLI session browser and search."""
 
     TITLE = f"kiro-cli-history ({_get_version_string()})"
+    SUB_TITLE = "🔗 https://github.com/cakel/kiro-cli-history — ⭐ Star if useful!"
+
+    def format_title(self, title: str, sub_title: str):
+        """Only show sub_title when Header is expanded (has -tall class)."""
+        from textual.content import Content
+        from textual.css.query import NoMatches
+        try:
+            header = self.query_one("EasterEggHeader")
+            # Check CSS class instead of tall property (click toggles class, not property)
+            if "-tall" not in header.classes:
+                sub_title = ""  # Hide sub_title when collapsed
+        except NoMatches:
+            pass  # Header not yet mounted
+        title_content = Content(title)
+        sub_title_content = Content(sub_title)
+        if sub_title_content:
+            return Content.assemble(
+                title_content,
+                (" — ", "dim"),
+                sub_title_content.stylize("dim"),
+            )
+        return title_content
+
     CSS = """
     Screen {
         layout: horizontal;
@@ -220,7 +243,11 @@ class KiroHistory(App):
     def get_system_commands(self, screen):
         """Add custom commands to the command palette."""
         from textual.app import SystemCommand
-        yield from super().get_system_commands(screen)
+        # Filter out Textual's built-in "Theme" command — we provide our own "Set Theme…"
+        for cmd in super().get_system_commands(screen):
+            if cmd.title == "Theme":
+                continue
+            yield cmd
         
         # Toggle --trust-all-tools
         trust_status = "ON" if self._trust_all_tools else "OFF"
@@ -431,7 +458,7 @@ class KiroHistory(App):
         return False
 
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield EasterEggHeader()
         with Horizontal():
             with Vertical(id="left-pane"):
                 yield Input(placeholder="Search sessions...", id="search-input")
@@ -537,7 +564,7 @@ class KiroHistory(App):
     def on_key(self, event) -> None:
         """Handle key events for navigation."""
         # Skip custom key handling when a modal screen is active
-        if not isinstance(self.screen, type(self.screen_stack[0])):
+        if type(self.screen) is not type(self.screen_stack[0]):
             return  # Let modal screens handle their own keys
         
         search_input = self.query_one("#search-input", Input)
@@ -606,6 +633,28 @@ class KiroHistory(App):
                 event.prevent_default()
                 event.stop()
                 self.action_load_more()
+                return
+            # PageUp/Down, Home/End: move selection along with scroll
+            if event.key == "pageup":
+                event.prevent_default()
+                event.stop()
+                list_view.index = max(0, list_view.index - 10)
+                return
+            if event.key == "pagedown":
+                event.prevent_default()
+                event.stop()
+                max_idx = len(list_view.children) - 1
+                list_view.index = min(max_idx, list_view.index + 10)
+                return
+            if event.key == "home":
+                event.prevent_default()
+                event.stop()
+                list_view.index = 0
+                return
+            if event.key == "end":
+                event.prevent_default()
+                event.stop()
+                list_view.index = len(list_view.children) - 1
                 return
 
         # Preview pane: left/h moves back to session list

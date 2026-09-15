@@ -296,3 +296,122 @@ async def test_load_more_messages(fixture_env):
         await pilot.press("m")
         await _wait_for_preview(app, pilot, min_messages=count_before + 1)
         assert len(app._preview_messages) > count_before
+
+
+# ---------------------------------------------------------------------------
+# Theme Picker Tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_theme_picker_opens_and_closes(fixture_env):
+    """Theme picker must open via _open_theme_picker and close with Escape."""
+    app = KiroHistory()
+    async with app.run_test(headless=True, size=(120, 40)) as pilot:
+        await _wait_for_sessions(app, pilot)
+        
+        # Open theme picker
+        app._open_theme_picker()
+        await pilot.pause(0.1)
+        
+        # Verify ThemePickerScreen is active
+        assert "ThemePickerScreen" in type(app.screen).__name__
+        
+        # Close with Escape
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        
+        # Should be back to main screen
+        assert "ThemePickerScreen" not in type(app.screen).__name__
+
+
+@pytest.mark.asyncio
+async def test_theme_picker_navigation(fixture_env):
+    """Theme picker must respond to Home/End/PageUp/PageDown."""
+    app = KiroHistory()
+    async with app.run_test(headless=True, size=(120, 40)) as pilot:
+        await _wait_for_sessions(app, pilot)
+        
+        app._open_theme_picker()
+        await pilot.pause(0.1)
+        
+        lv = app.screen.query_one("#theme-list")
+        initial_index = lv.index
+        
+        # Home → first item
+        await pilot.press("home")
+        await pilot.pause(0.05)
+        assert lv.index == 0, f"Home should go to 0, got {lv.index}"
+        
+        # End → last item
+        await pilot.press("end")
+        await pilot.pause(0.05)
+        num_themes = len(app.available_themes)
+        assert lv.index == num_themes - 1, f"End should go to {num_themes - 1}, got {lv.index}"
+        
+        # PageUp from end
+        await pilot.press("pageup")
+        await pilot.pause(0.05)
+        assert lv.index < num_themes - 1, "PageUp should decrease index"
+        
+        # Home then PageDown
+        await pilot.press("home")
+        await pilot.pause(0.05)
+        await pilot.press("pagedown")
+        await pilot.pause(0.05)
+        assert lv.index == 10, f"PageDown from 0 should go to 10, got {lv.index}"
+        
+        await pilot.press("escape")
+
+
+@pytest.mark.asyncio
+async def test_theme_picker_selection(fixture_env):
+    """Selecting a theme must change app.theme and dismiss picker."""
+    app = KiroHistory()
+    async with app.run_test(headless=True, size=(120, 40)) as pilot:
+        await _wait_for_sessions(app, pilot)
+        
+        initial_theme = app._theme
+        
+        app._open_theme_picker()
+        await pilot.pause(0.1)
+        
+        lv = app.screen.query_one("#theme-list")
+        
+        # Go to first theme (may differ from current)
+        await pilot.press("home")
+        await pilot.pause(0.05)
+        
+        # Move up one if already at first to ensure we pick a different theme
+        if lv.index == 0:
+            await pilot.press("down")
+            await pilot.pause(0.05)
+        
+        # Get the theme name we're about to select
+        selected_item = lv.highlighted_child
+        expected_theme = selected_item.id[len("theme-"):]
+        
+        # Select it
+        lv.action_select_cursor()
+        await pilot.pause(0.1)
+        
+        # Picker should be dismissed
+        assert "ThemePickerScreen" not in type(app.screen).__name__
+        
+        # Theme should be changed
+        assert app._theme == expected_theme
+        assert app.theme == expected_theme
+
+
+@pytest.mark.asyncio
+async def test_no_duplicate_theme_command(fixture_env):
+    """Only 'Set Theme…' should appear, not Textual's default 'Theme'."""
+    app = KiroHistory()
+    async with app.run_test(headless=True, size=(120, 40)) as pilot:
+        await _wait_for_sessions(app, pilot)
+        
+        cmds = list(app.get_system_commands(app.screen))
+        theme_titles = [c.title for c in cmds if "theme" in c.title.lower()]
+        
+        # Should have exactly one theme command
+        assert len(theme_titles) == 1, f"Expected 1 theme command, got {theme_titles}"
+        assert "Set Theme" in theme_titles[0], f"Expected 'Set Theme…', got {theme_titles}"
