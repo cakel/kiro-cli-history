@@ -97,7 +97,12 @@ def load_config() -> dict:
         saved_settings = data.get("settings", {})
         for key in DEFAULT_SETTINGS:
             if key in saved_settings:
-                settings[key] = saved_settings[key]
+                val = saved_settings[key]
+                # Type-check: bool settings must be bool (guard against "yes", 1, etc.)
+                if isinstance(DEFAULT_SETTINGS[key], bool):
+                    settings[key] = bool(val) if isinstance(val, bool) else DEFAULT_SETTINGS[key]
+                else:
+                    settings[key] = val
                 
     except (json.JSONDecodeError, OSError, KeyError, TypeError):
         # Corrupted or unreadable — use defaults
@@ -106,7 +111,7 @@ def load_config() -> dict:
     return settings
 
 
-def save_config(settings: dict) -> bool:
+def save_config(settings: dict) -> tuple:
     """Save settings to config file.
     
     Args:
@@ -114,7 +119,7 @@ def save_config(settings: dict) -> bool:
                   Only keys in DEFAULT_SETTINGS are saved.
     
     Returns:
-        True if saved successfully, False otherwise.
+        (True, "") on success, (False, error_message) on failure.
     """
     config_path = _get_config_path()
     
@@ -144,7 +149,7 @@ def save_config(settings: dict) -> bool:
         
         # Replace atomically
         os.replace(tmp_path, config_path)
-        return True
+        return (True, "")
         
     except (OSError, TypeError) as e:
         # Clean up temp file if rename failed
@@ -153,7 +158,7 @@ def save_config(settings: dict) -> bool:
                 os.unlink(tmp_path)
             except OSError:
                 pass
-        return False
+        return (False, str(e))
 
 
 def get_setting(key: str, default=None):

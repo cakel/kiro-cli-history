@@ -53,8 +53,9 @@ if (Test-Path $batPath) {
 }
 
 # -- 3. Remove virtual environment --
+# (venv is inside installDir; removed when installDir is deleted in step 4)
 if (Test-Path $venvDir) {
-    Write-Info "Removing virtual environment: $venvDir"
+    Write-Info "Virtual environment will be removed with install directory: $venvDir"
 }
 
 # -- 4. Remove install directory (includes venv) --
@@ -67,7 +68,7 @@ if (Test-Path $installDir) {
         $response = Read-Host "Delete config and logs? (y/N)"
         if ($response -ne 'y' -and $response -ne 'Y') {
             # Move data dir to temp location, delete install dir, restore data
-            $tempDataDir = Join-Path $env:TEMP "kiro-cli-history-data-backup"
+            $tempDataDir = Join-Path $env:TEMP "kiro-cli-history-data-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
             try {
                 if (Test-Path $tempDataDir) { Remove-Item $tempDataDir -Recurse -Force }
                 Move-Item $dataDir $tempDataDir -Force

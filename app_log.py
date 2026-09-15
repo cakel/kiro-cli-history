@@ -18,6 +18,8 @@ Log levels:
 import gzip
 import os
 import shutil
+import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +36,7 @@ MAX_ROTATED_FILES = 10  # Safety cap on number of .gz files
 # Module state
 _log_file = None
 _app_version = "unknown"
+_log_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +158,9 @@ def init_logging() -> None:
     try:
         log_path = _get_log_path()
         _log_file = open(log_path, "a", encoding="utf-8", buffering=1)
-    except OSError:
+    except OSError as e:
         _log_file = None
+        print(f"[kiro-cli-history] Warning: could not open log file: {e}", file=sys.stderr)
 
 
 def close_logging() -> None:
@@ -175,8 +179,8 @@ def close_logging() -> None:
 # ---------------------------------------------------------------------------
 
 def _format_timestamp() -> str:
-    """Get current timestamp in ISO format with timezone."""
-    return datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
+    """Get current timestamp in ISO 8601 format with timezone (RFC 3339)."""
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def _format_kwargs(kwargs: dict) -> str:
@@ -184,7 +188,7 @@ def _format_kwargs(kwargs: dict) -> str:
     parts = []
     for k, v in kwargs.items():
         if isinstance(v, str) and (" " in v or "=" in v or '"' in v):
-            escaped = v.replace('"', '\\"')
+            escaped = v.replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
             parts.append(f'{k}="{escaped}"')
         elif isinstance(v, float):
             parts.append(f"{k}={v:.3f}")
@@ -194,7 +198,7 @@ def _format_kwargs(kwargs: dict) -> str:
 
 
 def _write_log(level: str, event: str, **kwargs) -> None:
-    """Write a log entry."""
+    """Write a log entry. Thread-safe."""
     if _log_file is None:
         return
     
@@ -207,9 +211,9 @@ def _write_log(level: str, event: str, **kwargs) -> None:
         line = f"{timestamp} [{level}] {event}\n"
     
     try:
-        _log_file.write(line)
-        # Line buffering should auto-flush, but be explicit
-        _log_file.flush()
+        with _log_lock:
+            _log_file.write(line)
+            _log_file.flush()
     except OSError:
         pass
 

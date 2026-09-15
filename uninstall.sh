@@ -37,12 +37,12 @@ if [ -d "$INSTALL_DIR" ]; then
             echo "Removed $INSTALL_DIR (including config and logs)"
         else
             # Keep data, remove everything else
-            TEMP_DATA="/tmp/kiro-cli-history-data-backup"
-            rm -rf "$TEMP_DATA" 2>/dev/null || true
-            mv "$DATA_DIR" "$TEMP_DATA"
+            TEMP_DATA=$(mktemp -d)
+            mv "$DATA_DIR" "$TEMP_DATA/data"
             rm -rf "$INSTALL_DIR"
             mkdir -p "$INSTALL_DIR"
-            mv "$TEMP_DATA" "$DATA_DIR"
+            mv "$TEMP_DATA/data" "$DATA_DIR"
+            rm -rf "$TEMP_DATA"
             echo "Removed program files, kept config and logs"
         fi
     else

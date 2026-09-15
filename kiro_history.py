@@ -33,12 +33,13 @@ from session_store import (
 
 # --- Config / logging ---
 try:
-    from config import load_config, save_config
+    from config import load_config, save_config, DEFAULT_SETTINGS as _CONFIG_DEFAULTS
     from app_log import init_logging, log_perf, log_warn, log_error, close_logging
 except ImportError:
     # Graceful degradation if modules not available
-    def load_config(): return {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False}
-    def save_config(s): return False
+    _CONFIG_DEFAULTS = {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False}
+    def load_config(): return _CONFIG_DEFAULTS.copy()
+    def save_config(s): return (False, "config module not available")
     def init_logging(): pass
     def log_perf(*a, **kw): pass
     def log_warn(*a, **kw): pass
@@ -311,9 +312,9 @@ class KiroHistory(App):
         self.selected_session = None
         # Load settings from config (or use defaults)
         cfg = load_config()
-        self._trust_all_tools = cfg.get("trust_all_tools", True)
-        self._show_single_turn = cfg.get("show_single_turn", False)
-        self._show_untitled = cfg.get("show_untitled", False)
+        self._trust_all_tools = cfg.get("trust_all_tools", _CONFIG_DEFAULTS["trust_all_tools"])
+        self._show_single_turn = cfg.get("show_single_turn", _CONFIG_DEFAULTS["show_single_turn"])
+        self._show_untitled = cfg.get("show_untitled", _CONFIG_DEFAULTS["show_untitled"])
         self._viewer_search_query = ""
         # Lazy loading state
         self._preview_messages = []  # Messages loaded so far
@@ -393,12 +394,13 @@ class KiroHistory(App):
             "show_single_turn": self._show_single_turn,
             "show_untitled": self._show_untitled,
         }
-        if save_config(settings):
+        ok, err = save_config(settings)
+        if ok:
             log_perf("config_saved", **settings)
             self.notify("Settings saved as default")
         else:
-            log_error("config_save_failed")
-            self.notify("Failed to save settings", severity="error")
+            log_error("config_save_failed", error=err)
+            self.notify(f"Failed to save settings: {err}", severity="error")
 
     # Table name allowlist for SQL injection prevention
     _SQL_TABLES = {
@@ -509,19 +511,19 @@ class KiroHistory(App):
 
     def on_mount(self) -> None:
         import time
-        # Initialize logging
-        init_logging()
         self._start_time = time.perf_counter()
         # Show loading indicator in the list area
         list_view = self.query_one("#session-list", ListView)
         list_view.append(ListItem(Static("Loading sessions...", classes="loading-hint")))
-        # Load sessions in background
+        # Load sessions in background (init_logging runs inside worker to avoid I/O blocking)
         self._load_sessions_async()
 
     @work(thread=True)
     def _load_sessions_async(self) -> None:
         """Load sessions in background thread."""
         import time
+        # Init logging here (worker thread) to avoid blocking on_mount with I/O
+        init_logging()
         t0 = time.perf_counter()
         try:
             sessions = get_sessions()
@@ -726,7 +728,7 @@ class KiroHistory(App):
         
         # Log search performance (only for non-stale results)
         cache_status = "warm" if any(s.get("_search_text") is not None for s in base[:10]) else "cold"
-        log_perf("search", query=query, results=len(results), time=search_time, cache=cache_status)
+        log_perf("search", query_len=len(query), results=len(results), time=search_time, cache=cache_status)
         
         # Update filtered_sessions on main thread to avoid race condition
         def update_results():
