@@ -28,6 +28,7 @@ DEFAULT_SETTINGS = {
     "show_single_turn": False,
     "show_untitled": False,
     "theme": "textual-dark",
+    "debug": False,
 }
 
 

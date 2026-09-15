@@ -3,8 +3,11 @@
 Writes to kiro-cli-history.log with rotation (2MB gz) and retention (60 days).
 Designed for debugging and performance analysis, not verbose runtime logging.
 
+Logging is OFF by default. Enable via Settings menu ("Toggle Debug Logging").
+When enabled, takes effect on next app start.
+
 Public API:
-    init_logging()              -> None (call once at app start)
+    init_logging(debug=False)   -> None (call once at app start)
     log_perf(event, **kwargs)   -> None
     log_warn(event, **kwargs)   -> None  
     log_error(event, **kwargs)  -> None
@@ -37,6 +40,7 @@ MAX_ROTATED_FILES = 10  # Safety cap on number of .gz files
 _log_file = None
 _app_version = "unknown"
 _log_lock = threading.Lock()
+_logging_enabled = False  # True only when debug=True was passed to init_logging
 
 
 # ---------------------------------------------------------------------------
@@ -133,22 +137,32 @@ def _cleanup_old_logs() -> None:
 # Initialization
 # ---------------------------------------------------------------------------
 
-def init_logging() -> None:
+def init_logging(debug: bool = False) -> None:
     """Initialize logging system. Call once at app start.
     
-    - Performs log rotation if needed
-    - Cleans up old log files
-    - Opens log file for appending
+    Args:
+        debug: If False (default), logging is disabled — no file created.
+               If True, enables file logging with rotation and cleanup.
+    
+    - Performs log rotation if needed (when debug=True)
+    - Cleans up old log files (when debug=True)
+    - Opens log file for appending (when debug=True)
     
     Safe to call multiple times — subsequent calls are no-ops.
     """
-    global _log_file, _app_version
+    global _log_file, _app_version, _logging_enabled
     
     # Already initialized — skip
-    if _log_file is not None:
+    if _log_file is not None or _logging_enabled:
         return
     
     _app_version = _get_app_version()
+    
+    # Debug off — do nothing, logging remains disabled
+    if not debug:
+        return
+    
+    _logging_enabled = True
     
     # Rotate and cleanup first
     _rotate_logs()
@@ -165,13 +179,14 @@ def init_logging() -> None:
 
 def close_logging() -> None:
     """Close log file. Optional — called at app exit."""
-    global _log_file
+    global _log_file, _logging_enabled
     if _log_file:
         try:
             _log_file.close()
         except OSError:
             pass
         _log_file = None
+    _logging_enabled = False
 
 
 # ---------------------------------------------------------------------------

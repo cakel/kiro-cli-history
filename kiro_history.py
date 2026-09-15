@@ -222,6 +222,7 @@ class KiroHistory(App):
         self._show_single_turn = cfg.get("show_single_turn", _CONFIG_DEFAULTS["show_single_turn"])
         self._show_untitled = cfg.get("show_untitled", _CONFIG_DEFAULTS["show_untitled"])
         self._theme = cfg.get("theme", _CONFIG_DEFAULTS["theme"])
+        self._debug = cfg.get("debug", _CONFIG_DEFAULTS["debug"])
         self._viewer_search_query = ""
         # Lazy loading state
         self._preview_messages = []  # Messages loaded so far
@@ -281,6 +282,14 @@ class KiroHistory(App):
             self._open_theme_picker
         )
 
+        # Toggle debug logging
+        debug_status = "ON" if self._debug else "OFF"
+        yield SystemCommand(
+            f"Toggle Debug Logging (currently {debug_status})",
+            "Enable/disable debug log file (takes effect on next app start)",
+            self._toggle_debug
+        )
+
         # --- Reset to Default Settings (bottom, separated) ---
         yield SystemCommand(
             "─── Reset to Default Settings",
@@ -315,6 +324,11 @@ class KiroHistory(App):
         status = "shown" if self._show_untitled else "hidden"
         self._apply_save_settings(f"Untitled sessions {status}")
 
+    def _toggle_debug(self) -> None:
+        self._debug = not self._debug
+        status = "ON" if self._debug else "OFF"
+        self._apply_save_settings(f"Debug logging {status} (restart to apply)")
+
     def _apply_save_settings(self, notify_msg: str) -> None:
         """Save current settings to config and notify user."""
         settings = {
@@ -322,6 +336,7 @@ class KiroHistory(App):
             "show_single_turn": self._show_single_turn,
             "show_untitled": self._show_untitled,
             "theme": self._theme,
+            "debug": self._debug,
         }
         ok, err = save_config(settings)
         if ok:
@@ -337,6 +352,7 @@ class KiroHistory(App):
         self._show_single_turn = _CONFIG_DEFAULTS["show_single_turn"]
         self._show_untitled = _CONFIG_DEFAULTS["show_untitled"]
         self._theme = _CONFIG_DEFAULTS["theme"]
+        self._debug = _CONFIG_DEFAULTS["debug"]
         if self._theme in self.available_themes:
             self.theme = self._theme
         # Refresh session list (applies new single-turn / untitled filters)
@@ -352,12 +368,14 @@ class KiroHistory(App):
             "show_single_turn": self._show_single_turn,
             "show_untitled": self._show_untitled,
             "theme": self._theme,
+            "debug": self._debug,
         })
         trust = "ON" if self._trust_all_tools else "OFF"
         single = "shown" if self._show_single_turn else "hidden"
         untitled = "shown" if self._show_untitled else "hidden"
+        debug = "ON" if self._debug else "OFF"
         self.notify(
-            f"trust-all-tools={trust}  single-turn={single}  untitled={untitled}  theme={self._theme}",
+            f"trust-all-tools={trust}  single-turn={single}  untitled={untitled}  theme={self._theme}  debug={debug}",
             title="Reset to Default Settings",
             timeout=5,
         )
@@ -483,14 +501,14 @@ class KiroHistory(App):
         list_view.append(ListItem(Static("Loading sessions...", classes="loading-hint")))
         self.query_one("#status-bar", Static).update(" Loading sessions… | Ctrl+P menu available after load")
         # Load sessions in background (init_logging runs inside worker to avoid I/O blocking)
-        self._load_sessions_async()
+        self._load_sessions_async(self._debug)
 
     @work(thread=True)
-    def _load_sessions_async(self) -> None:
+    def _load_sessions_async(self, debug: bool) -> None:
         """Load sessions in background thread."""
         import time
         # Init logging here (worker thread) to avoid blocking on_mount with I/O
-        init_logging()
+        init_logging(debug=debug)
         t0 = time.perf_counter()
         try:
             sessions = get_sessions()
@@ -528,9 +546,13 @@ class KiroHistory(App):
             self.query_one("#status-bar", Static).update,
             f" {len(sessions)} sessions | Ctrl+R resume | / search | Ctrl+P menu"
         )
+        debug_status = "Debug: ON" if self._debug else ""
+        ready_msg = f"{len(sessions)} sessions loaded"
+        if debug_status:
+            ready_msg = f"{ready_msg} ({debug_status})"
         self.call_from_thread(
             self.notify,
-            f"{len(sessions)} sessions loaded",
+            ready_msg,
             title="Ready",
             timeout=3,
         )
