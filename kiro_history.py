@@ -252,22 +252,22 @@ class KiroHistory(App):
     def _toggle_trust_all_tools(self) -> None:
         self._trust_all_tools = not self._trust_all_tools
         status = "enabled" if self._trust_all_tools else "disabled"
-        self.notify(f"--trust-all-tools {status}")
+        self._apply_save_settings(f"--trust-all-tools {status}")
 
     def _toggle_single_turn(self) -> None:
         self._show_single_turn = not self._show_single_turn
         self._refresh_sessions()
         status = "shown" if self._show_single_turn else "hidden"
-        self.notify(f"Single-turn sessions {status}")
+        self._apply_save_settings(f"Single-turn sessions {status}")
 
     def _toggle_untitled(self) -> None:
         self._show_untitled = not self._show_untitled
         self._refresh_sessions()
         status = "shown" if self._show_untitled else "hidden"
-        self.notify(f"Untitled sessions {status}")
+        self._apply_save_settings(f"Untitled sessions {status}")
 
-    def _save_settings_as_default(self) -> None:
-        """Save current settings to config file."""
+    def _apply_save_settings(self, notify_msg: str) -> None:
+        """Save current settings to config and notify user."""
         settings = {
             "trust_all_tools": self._trust_all_tools,
             "show_single_turn": self._show_single_turn,
@@ -275,11 +275,15 @@ class KiroHistory(App):
         }
         ok, err = save_config(settings)
         if ok:
-            log_perf("config_saved", **settings)
-            self.notify("Settings saved as default")
+            log_perf("config_save", **settings)
+            self.notify(notify_msg)
         else:
             log_error("config_save_failed", error=err)
-            self.notify(f"Failed to save settings: {err}", severity="error")
+            self.notify(f"{notify_msg} (save failed: {err})", severity="warning")
+
+    def _save_settings_as_default(self) -> None:
+        """Save current settings to config file (explicit menu action)."""
+        self._apply_save_settings("Settings saved as default")
 
     # Table name allowlist for SQL injection prevention
     _SQL_TABLES = {
@@ -421,9 +425,10 @@ class KiroHistory(App):
             return
         
         load_time = time.perf_counter() - t0
-        # Log app start with session count and load time
+        # Log app start with session count, load time, and current settings
         total_time = time.perf_counter() - self._start_time if self._start_time else load_time
-        log_perf("app_start", version=VERSION, sessions=len(sessions), load_time=load_time, total_time=total_time)
+        log_perf("app_start", version=VERSION, sessions=len(sessions), load_time=load_time, total_time=total_time,
+                 trust_all_tools=self._trust_all_tools, show_single_turn=self._show_single_turn, show_untitled=self._show_untitled)
             
         self.all_sessions = sessions
         self._sessions_loading = False
