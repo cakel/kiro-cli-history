@@ -18,6 +18,7 @@ from pathlib import Path
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.command import CommandPalette
 
 # --- Data / search layer ---
 from session_store import (
@@ -89,7 +90,7 @@ def _get_version_string() -> str:
     # 3. Fallback
     return VERSION
 
-from textual.containers import Horizontal, Vertical, Center
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.message import Message
 from textual.widgets import Footer, Header, Input, Static, ListView, ListItem, RichLog, Button
@@ -99,6 +100,9 @@ from rich.markdown import Markdown
 
 # --- UI Components (imported from widgets.py) ---
 from widgets import PreviewSearchInput, RenameScreen, SessionItem
+
+# --- Constants ---
+PREVIEW_BATCH_SIZE = 30  # Messages per batch for lazy loading
 
 
 class KiroHistory(App):
@@ -198,7 +202,7 @@ class KiroHistory(App):
         # Lazy loading state
         self._preview_messages = []  # Messages loaded so far
         self._preview_all_loaded = False  # Whether all messages are loaded
-        self._preview_batch_size = 30  # Messages per batch
+        self._preview_batch_size = PREVIEW_BATCH_SIZE
         self._preview_loading_session_id = None  # Guard for race condition
         self._sessions_loading = True  # Whether sessions are still loading
         self._search_id = 0  # Counter for search debounce
@@ -340,8 +344,9 @@ class KiroHistory(App):
                     temp_path = tf.name
                 os.replace(temp_path, json_path)
                 return True
-            except Exception:
+            except Exception as e:
                 # Clean up temp file if rename failed
+                log_error("rename_jsonl_failed", session_id=session.get("session_id", ""), error=str(e))
                 try:
                     if temp_path and os.path.exists(temp_path):
                         os.unlink(temp_path)
@@ -396,7 +401,8 @@ class KiroHistory(App):
                         )
                         conn.commit()
                 return True
-            except Exception:
+            except Exception as e:
+                log_error("rename_sqlite_failed", session_id=session.get("session_id", ""), source=source, error=str(e))
                 return False
         
         return False
@@ -435,7 +441,9 @@ class KiroHistory(App):
         try:
             sessions = get_sessions()
         except Exception as e:
-            self._sessions_loading = False
+            def mark_error():
+                self._sessions_loading = False
+            self.call_from_thread(mark_error)
             log_error("load_sessions_failed", error=str(e))
             self.call_from_thread(
                 self.notify,
@@ -453,9 +461,13 @@ class KiroHistory(App):
         total_time = time.perf_counter() - self._start_time if self._start_time else load_time
         log_perf("app_start", version=VERSION, sessions=len(sessions), load_time=load_time, total_time=total_time,
                  trust_all_tools=self._trust_all_tools, show_single_turn=self._show_single_turn, show_untitled=self._show_untitled)
-            
-        self.all_sessions = sessions
-        self._sessions_loading = False
+        
+        # Update shared state on main thread to avoid race conditions
+        def update_sessions():
+            self.all_sessions = sessions
+            self._sessions_loading = False
+        self.call_from_thread(update_sessions)
+        
         # Apply filters and populate list
         self.call_from_thread(self._refresh_sessions)
         self.call_from_thread(
@@ -530,7 +542,6 @@ class KiroHistory(App):
         # Session list navigation: j/k for up/down
         if list_view.has_focus:
             # Skip if Command Palette is open — let it handle Enter
-            from textual.command import CommandPalette
             if CommandPalette.is_open(self):
                 return
             # Enter: move focus to preview
