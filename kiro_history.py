@@ -241,33 +241,33 @@ class KiroHistory(App):
             "Show/hide sessions without a title",
             self._toggle_untitled
         )
-        
-        # Save current settings as default
+
+        # --- Reset to Default Settings (bottom, separated) ---
         yield SystemCommand(
-            "Set current settings as default",
-            "Save trust-all-tools, single-turn, untitled visibility to config file",
-            self._save_settings_as_default
+            "─── Reset to Default Settings",
+            "Load kiro-cli-history.json and apply saved settings immediately",
+            self._reset_to_saved_defaults
         )
 
     def _toggle_trust_all_tools(self) -> None:
         self._trust_all_tools = not self._trust_all_tools
         status = "enabled" if self._trust_all_tools else "disabled"
-        self.notify(f"--trust-all-tools {status}")
+        self._apply_save_settings(f"--trust-all-tools {status}")
 
     def _toggle_single_turn(self) -> None:
         self._show_single_turn = not self._show_single_turn
         self._refresh_sessions()
         status = "shown" if self._show_single_turn else "hidden"
-        self.notify(f"Single-turn sessions {status}")
+        self._apply_save_settings(f"Single-turn sessions {status}")
 
     def _toggle_untitled(self) -> None:
         self._show_untitled = not self._show_untitled
         self._refresh_sessions()
         status = "shown" if self._show_untitled else "hidden"
-        self.notify(f"Untitled sessions {status}")
+        self._apply_save_settings(f"Untitled sessions {status}")
 
-    def _save_settings_as_default(self) -> None:
-        """Save current settings to config file."""
+    def _apply_save_settings(self, notify_msg: str) -> None:
+        """Save current settings to config and notify user."""
         settings = {
             "trust_all_tools": self._trust_all_tools,
             "show_single_turn": self._show_single_turn,
@@ -275,11 +275,38 @@ class KiroHistory(App):
         }
         ok, err = save_config(settings)
         if ok:
-            log_perf("config_saved", **settings)
-            self.notify("Settings saved as default")
+            log_perf("config_save", **settings)
+            self.notify(notify_msg, title="Settings", timeout=4)
         else:
             log_error("config_save_failed", error=err)
-            self.notify(f"Failed to save settings: {err}", severity="error")
+            self.notify(f"{notify_msg} (save failed: {err})", title="Settings", severity="warning", timeout=6)
+
+    def _reset_to_saved_defaults(self) -> None:
+        """Reset settings to DEFAULT_SETTINGS, apply immediately, persist to json."""
+        self._trust_all_tools = _CONFIG_DEFAULTS["trust_all_tools"]
+        self._show_single_turn = _CONFIG_DEFAULTS["show_single_turn"]
+        self._show_untitled = _CONFIG_DEFAULTS["show_untitled"]
+        # Refresh session list (applies new single-turn / untitled filters)
+        self._refresh_sessions()
+        # Update status bar to reflect new session count
+        filtered = self._get_filtered_base()
+        self.query_one("#status-bar", Static).update(
+            f" {len(filtered)} sessions | Ctrl+R resume | / search | Ctrl+P menu"
+        )
+        # Persist so next startup also uses defaults
+        save_config({
+            "trust_all_tools": self._trust_all_tools,
+            "show_single_turn": self._show_single_turn,
+            "show_untitled": self._show_untitled,
+        })
+        trust = "ON" if self._trust_all_tools else "OFF"
+        single = "shown" if self._show_single_turn else "hidden"
+        untitled = "shown" if self._show_untitled else "hidden"
+        self.notify(
+            f"trust-all-tools={trust}  single-turn={single}  untitled={untitled}",
+            title="Reset to Default Settings",
+            timeout=5,
+        )
 
     # Table name allowlist for SQL injection prevention
     _SQL_TABLES = {
@@ -391,9 +418,10 @@ class KiroHistory(App):
     def on_mount(self) -> None:
         import time
         self._start_time = time.perf_counter()
-        # Show loading indicator in the list area
+        # Show loading indicator in the list area and status bar
         list_view = self.query_one("#session-list", ListView)
         list_view.append(ListItem(Static("Loading sessions...", classes="loading-hint")))
+        self.query_one("#status-bar", Static).update(" Loading sessions… | Ctrl+P menu available after load")
         # Load sessions in background (init_logging runs inside worker to avoid I/O blocking)
         self._load_sessions_async()
 
@@ -421,9 +449,10 @@ class KiroHistory(App):
             return
         
         load_time = time.perf_counter() - t0
-        # Log app start with session count and load time
+        # Log app start with session count, load time, and current settings
         total_time = time.perf_counter() - self._start_time if self._start_time else load_time
-        log_perf("app_start", version=VERSION, sessions=len(sessions), load_time=load_time, total_time=total_time)
+        log_perf("app_start", version=VERSION, sessions=len(sessions), load_time=load_time, total_time=total_time,
+                 trust_all_tools=self._trust_all_tools, show_single_turn=self._show_single_turn, show_untitled=self._show_untitled)
             
         self.all_sessions = sessions
         self._sessions_loading = False
@@ -432,6 +461,12 @@ class KiroHistory(App):
         self.call_from_thread(
             self.query_one("#status-bar", Static).update,
             f" {len(sessions)} sessions | Ctrl+R resume | / search | Ctrl+P menu"
+        )
+        self.call_from_thread(
+            self.notify,
+            f"{len(sessions)} sessions loaded",
+            title="Ready",
+            timeout=3,
         )
         # If user typed search query while loading, apply it now
         def apply_search():
@@ -494,6 +529,10 @@ class KiroHistory(App):
 
         # Session list navigation: j/k for up/down
         if list_view.has_focus:
+            # Skip if Command Palette is open — let it handle Enter
+            from textual.command import CommandPalette
+            if CommandPalette.is_open(self):
+                return
             # Enter: move focus to preview
             if event.key == "enter":
                 event.prevent_default()
