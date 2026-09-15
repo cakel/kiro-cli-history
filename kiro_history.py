@@ -418,9 +418,10 @@ class KiroHistory(App):
     def on_mount(self) -> None:
         import time
         self._start_time = time.perf_counter()
-        # Show loading indicator in the list area
+        # Show loading indicator in the list area and status bar
         list_view = self.query_one("#session-list", ListView)
         list_view.append(ListItem(Static("Loading sessions...", classes="loading-hint")))
+        self.query_one("#status-bar", Static).update(" Loading sessions… | Ctrl+P menu available after load")
         # Load sessions in background (init_logging runs inside worker to avoid I/O blocking)
         self._load_sessions_async()
 
@@ -460,6 +461,12 @@ class KiroHistory(App):
         self.call_from_thread(
             self.query_one("#status-bar", Static).update,
             f" {len(sessions)} sessions | Ctrl+R resume | / search | Ctrl+P menu"
+        )
+        self.call_from_thread(
+            self.notify,
+            f"{len(sessions)} sessions loaded",
+            title="Ready",
+            timeout=3,
         )
         # If user typed search query while loading, apply it now
         def apply_search():
