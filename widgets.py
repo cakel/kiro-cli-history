@@ -7,6 +7,7 @@ Widgets:
     PreviewSearchInput  — search input with Shift+Tab prev-match binding
     RenameScreen        — modal dialog for renaming a session
     SessionItem         — single row in the session list
+    EasterEggHeader     — Header that shows easter egg only when expanded
 """
 
 import os
@@ -17,7 +18,22 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, ListItem, ListView, Static
+from textual.widgets import Button, Header, Input, ListItem, ListView, Static
+
+
+class EasterEggHeader(Header):
+    """Header that refreshes title when clicked (to show/hide easter egg)."""
+
+    def _on_click(self) -> None:
+        """Toggle tall and refresh title display."""
+        super()._on_click()
+        # Force title refresh after CSS class toggle
+        from textual.widgets._header import HeaderTitle
+        from textual.css.query import NoMatches
+        try:
+            self.query_one(HeaderTitle).update(self.format_title())
+        except NoMatches:
+            pass  # HeaderTitle not yet mounted
 
 
 class PreviewSearchInput(Input):
@@ -191,6 +207,26 @@ class ThemePickerScreen(ModalScreen):
                 lv.index = i
                 break
         lv.focus()
+
+    def on_key(self, event) -> None:
+        """Handle navigation keys for the theme list."""
+        lv = self.query_one("#theme-list", ListView)
+        if event.key == "pageup":
+            event.prevent_default()
+            event.stop()
+            lv.index = max(0, lv.index - 10)
+        elif event.key == "pagedown":
+            event.prevent_default()
+            event.stop()
+            lv.index = min(len(self._themes) - 1, lv.index + 10)
+        elif event.key == "home":
+            event.prevent_default()
+            event.stop()
+            lv.index = 0
+        elif event.key == "end":
+            event.prevent_default()
+            event.stop()
+            lv.index = len(self._themes) - 1
 
     @on(ListView.Selected)
     def _on_theme_selected(self, event: ListView.Selected) -> None:

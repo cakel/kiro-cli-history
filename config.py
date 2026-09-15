@@ -35,11 +35,14 @@ DEFAULT_SETTINGS = {
 # Path resolution
 # ---------------------------------------------------------------------------
 
-# Fixed data directory — always use installed location regardless of where code runs
-if os.name == "nt":
-    _DATA_DIR = Path(r"C:\ProgramData\kiro-cli-history\data")
-else:
-    _DATA_DIR = Path.home() / ".local" / "share" / "kiro-cli-history" / "data"
+def _get_default_data_dir() -> Path:
+    """Get default data directory based on OS."""
+    if os.name == "nt":
+        return Path(r"C:\ProgramData\kiro-cli-history\data")
+    return Path.home() / ".local" / "share" / "kiro-cli-history" / "data"
+
+# Fixed data directory — override with KIRO_HISTORY_DATA_DIR env var if needed
+_DATA_DIR = Path(os.environ.get("KIRO_HISTORY_DATA_DIR", "")) or _get_default_data_dir()
 
 
 def get_install_dir() -> Path:
