@@ -276,10 +276,10 @@ class KiroHistory(App):
         ok, err = save_config(settings)
         if ok:
             log_perf("config_save", **settings)
-            self.notify(notify_msg)
+            self.notify(notify_msg, title="Settings", timeout=4)
         else:
             log_error("config_save_failed", error=err)
-            self.notify(f"{notify_msg} (save failed: {err})", severity="warning")
+            self.notify(f"{notify_msg} (save failed: {err})", title="Settings", severity="warning", timeout=6)
 
     def _reset_to_saved_defaults(self) -> None:
         """Reset settings to DEFAULT_SETTINGS, apply immediately, persist to json."""
@@ -302,7 +302,11 @@ class KiroHistory(App):
         trust = "ON" if self._trust_all_tools else "OFF"
         single = "shown" if self._show_single_turn else "hidden"
         untitled = "shown" if self._show_untitled else "hidden"
-        self.notify(f"Reset to defaults: trust-all-tools={trust}, single-turn={single}, untitled={untitled}")
+        self.notify(
+            f"trust-all-tools={trust}  single-turn={single}  untitled={untitled}",
+            title="Reset to Default Settings",
+            timeout=5,
+        )
 
     # Table name allowlist for SQL injection prevention
     _SQL_TABLES = {
