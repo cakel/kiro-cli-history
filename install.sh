@@ -85,19 +85,23 @@ cp "$SCRIPT_DIR/session_store.py" "$INSTALL_DIR/session_store.py" || { echo "ERR
 # Copy config.py and app_log.py (required for settings and logging)
 [ -f "$SCRIPT_DIR/config.py" ] || { echo "ERROR: config.py not found in $SCRIPT_DIR"; exit 1; }
 [ -f "$SCRIPT_DIR/app_log.py" ] || { echo "ERROR: app_log.py not found in $SCRIPT_DIR"; exit 1; }
+[ -f "$SCRIPT_DIR/_version.py" ] || { echo "ERROR: _version.py not found in $SCRIPT_DIR"; exit 1; }
+[ -f "$SCRIPT_DIR/widgets.py" ] || { echo "ERROR: widgets.py not found in $SCRIPT_DIR"; exit 1; }
 cp "$SCRIPT_DIR/config.py" "$INSTALL_DIR/config.py" || { echo "ERROR: Failed to copy config.py"; exit 1; }
 cp "$SCRIPT_DIR/app_log.py" "$INSTALL_DIR/app_log.py" || { echo "ERROR: Failed to copy app_log.py"; exit 1; }
-echo "Copied config.py and app_log.py"
+cp "$SCRIPT_DIR/_version.py" "$INSTALL_DIR/_version.py" || { echo "ERROR: Failed to copy _version.py"; exit 1; }
+cp "$SCRIPT_DIR/widgets.py" "$INSTALL_DIR/widgets.py" || { echo "ERROR: Failed to copy widgets.py"; exit 1; }
+echo "Copied config.py, app_log.py, _version.py and widgets.py"
 
-# Inject current git version and hash into installed script
+# Inject current git version and hash into installed _version.py
 GIT_HASH=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || true)
 GIT_TAG=$(git -C "$SCRIPT_DIR" describe --tags --abbrev=0 2>/dev/null || true)
 if [ -n "$GIT_HASH" ]; then
-    sed -i.bak "s/_BUILT_HASH = \"\"/_BUILT_HASH = \"$GIT_HASH\"/" "$INSTALL_DIR/kiro_history.py" && rm -f "$INSTALL_DIR/kiro_history.py.bak"
+    sed -i.bak "s/_BUILT_HASH = \"\"/_BUILT_HASH = \"$GIT_HASH\"/" "$INSTALL_DIR/_version.py" && rm -f "$INSTALL_DIR/_version.py.bak"
     echo "Injected git hash: $GIT_HASH"
 fi
 if [ -n "$GIT_TAG" ]; then
-    sed -i.bak "s/_BUILT_VERSION = \"\"/_BUILT_VERSION = \"$GIT_TAG\"/" "$INSTALL_DIR/kiro_history.py" && rm -f "$INSTALL_DIR/kiro_history.py.bak"
+    sed -i.bak "s/_BUILT_VERSION = \"\"/_BUILT_VERSION = \"$GIT_TAG\"/" "$INSTALL_DIR/_version.py" && rm -f "$INSTALL_DIR/_version.py.bak"
     echo "Injected git version: $GIT_TAG"
 fi
 

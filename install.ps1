@@ -122,8 +122,24 @@ if (-not (Test-Path $srcLog)) {
 Copy-Item -LiteralPath $srcLog -Destination (Join-Path $installDir "app_log.py") -Force
 Write-OK "Copied app_log.py -> $installDir"
 
-# Inject current git version and hash into installed script
-$destScript = Join-Path $installDir "kiro_history.py"
+# Copy _version.py (version constants — single source of truth)
+$srcVersion = Join-Path $SCRIPT_DIR "_version.py"
+if (-not (Test-Path $srcVersion)) {
+    Write-Err "_version.py not found in $SCRIPT_DIR"
+}
+Copy-Item -LiteralPath $srcVersion -Destination (Join-Path $installDir "_version.py") -Force
+Write-OK "Copied _version.py -> $installDir"
+
+# Copy widgets.py (UI widget components)
+$srcWidgets = Join-Path $SCRIPT_DIR "widgets.py"
+if (-not (Test-Path $srcWidgets)) {
+    Write-Err "widgets.py not found in $SCRIPT_DIR"
+}
+Copy-Item -LiteralPath $srcWidgets -Destination (Join-Path $installDir "widgets.py") -Force
+Write-OK "Copied widgets.py -> $installDir"
+
+# Inject current git version and hash into installed _version.py
+$destVersion = Join-Path $installDir "_version.py"
 try {
     $gitHash = & git -C $SCRIPT_DIR rev-parse --short HEAD 2>$null
     $hashOk = ($LASTEXITCODE -eq 0)
@@ -131,13 +147,13 @@ try {
     $tagOk = ($LASTEXITCODE -eq 0)
     
     if ($hashOk -and $gitHash) {
-        $content = Get-Content $destScript -Raw -Encoding UTF8
+        $content = Get-Content $destVersion -Raw -Encoding UTF8
         $content = $content -replace '_BUILT_HASH = ""', "_BUILT_HASH = `"$($gitHash.Trim())`""
         if ($tagOk -and $gitTag) {
             $content = $content -replace '_BUILT_VERSION = ""', "_BUILT_VERSION = `"$($gitTag.Trim())`""
             Write-OK "Injected git version: $($gitTag.Trim())"
         }
-        [System.IO.File]::WriteAllText($destScript, $content, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($destVersion, $content, [System.Text.UTF8Encoding]::new($false))
         Write-OK "Injected git hash: $($gitHash.Trim())"
     }
 } catch {
