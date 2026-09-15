@@ -3,6 +3,64 @@
 Upstream: https://github.com/prabhugr/kiro-cli-history  
 This fork: https://github.com/cakel/kiro-cli-history
 
+## v0.1.0-cakel.5
+
+### Auto-save settings
+- Toggle 시 `kiro-cli-history.json`에 즉시 저장 (별도 저장 단계 불필요)
+- `Reset to Default Settings` 메뉴: 기본값 적용 + UI 갱신 + 저장
+- 앱 시작 로그에 현재 설정 상태 포함
+
+### Command Palette UX improvements
+- Notify에 title + 4-5초 timeout 추가 (가시성 향상)
+- Status bar에 로딩 상태 표시 ("Loading sessions...") + 로드 완료 notify
+- **Session list 포커스 상태에서 Enter 즉시 동작** (ListView 키 가로채기 수정)
+
+### Test infrastructure
+- `slow` 마커로 GUI 테스트 분리
+  - `pytest tests/` = 63 tests (~1s)
+  - `pytest tests/ -m slow` = 27 GUI tests (~50s)
+
+### Code Hardening
+- Thread safety: `call_from_thread` 래핑, session_id 가드
+- Import 최적화: CommandPalette 상단 이동 (매 키 입력 오버헤드 제거)
+- 상수 추출: PREVIEW_BATCH_SIZE
+- Error logging: rename 실패 시 log_error (JSONL/SQLite)
+- 방어적 접근: `.get()` 패턴
+- 미사용 코드 제거: Center import, highlight_query param
+
+### Known Issues
+- Command Palette 첫 열기 시 0.25초 지연 (Textual 내부 batch 처리) — README에 문서화
+
+---
+
+## v0.1.0-cakel.4
+
+### Module restructuring
+- `_version.py`: VERSION 상수 단일 소스 (순환 import 해결)
+- `widgets.py`: UI 위젯 분리 (PreviewSearchInput, RenameScreen, SessionItem)
+- `config.py`: 설정 영속화 (`kiro-cli-history.json`)
+- `app_log.py`: 스레드 안전 로깅 + 로테이션 (2MB gz, 60일 보관)
+
+### Installer updates
+- install.sh / install.ps1: 새 모듈들 복사 추가
+
+---
+
+## v0.1.0-cakel.3
+
+### Config & Logging system (#14)
+- `config.py`: get_data_dir(), load_config(), save_config()
+- `app_log.py`: init_logging(), log_perf(), log_warn(), log_error()
+- Schema versioning (SCHEMA_VERSION = 1)
+- Atomic write (tempfile + os.replace)
+- Log rotation: 2MB limit, gzip compression, 60일 보관
+
+### Settings persistence
+- trust_all_tools, show_single_turn, show_untitled 설정 저장/로드
+- Command palette에서 토글 시 자동 저장
+
+---
+
 ## v0.1.0-cakel.2
 
 ### New features

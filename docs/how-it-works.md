@@ -41,6 +41,40 @@ atomic tempfile+rename to prevent corruption.
   offset-based file reading (no re-scan on each page)
 - **Debounced search**: search_id prevents stale results from fast typing
 
+## Configuration
+
+Settings are stored in `data/kiro-cli-history.json` (relative to install dir):
+
+```json
+{
+  "schema_version": 1,
+  "app_version": "v0.1.0-cakel.5",
+  "settings": {
+    "trust_all_tools": true,
+    "show_single_turn": false,
+    "show_untitled": false
+  }
+}
+```
+
+- Settings auto-save on every toggle (no separate save step)
+- Atomic write: tempfile + os.replace prevents corruption
+- Schema versioning for future migration
+
+## Logging
+
+Logs are written to `data/kiro-cli-history.log`:
+
+- **Rotation**: 2MB limit, compressed to `.gz`
+- **Retention**: 60 days
+- **Levels**: PERF (performance), WARN (recoverable), ERROR (failures)
+- **Thread-safe**: lock-protected writes
+
+Example log entry:
+```
+2026-09-15T14:39:23+09:00 [PERF] app_start version=v0.1.0-cakel.5 sessions=277 load_time=1.015
+```
+
 ## How this complements Kiro CLI native tools
 
 | | `--resume-picker` (native) | kiro-cli-history |

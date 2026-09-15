@@ -3,7 +3,12 @@
 ## File structure
 
 ```
-kiro_history.py          Main application (single-file TUI)
+kiro_history.py          Main application (TUI)
+session_store.py         Data/search layer (no Textual imports)
+config.py                Settings persistence (kiro-cli-history.json)
+app_log.py               Thread-safe logging with rotation
+widgets.py               Reusable UI widgets (PreviewSearchInput, RenameScreen, SessionItem)
+_version.py              VERSION constant (single source of truth)
 install.sh               Linux/macOS installer
 install.ps1              Windows installer (PowerShell)
 install.bat              Windows entry point (delegates to install.ps1)
@@ -50,6 +55,13 @@ on load more:
 ### Single-file architecture
 All code in `kiro_history.py`. Intentional: simplifies installation
 (copy one file), reduces import complexity, matches upstream convention.
+
+**Update (v0.1.0-cakel.4):** Now split into modules for maintainability:
+- `session_store.py` — pure data/search layer (no Textual imports, testable independently)
+- `config.py` — settings persistence with schema versioning
+- `app_log.py` — thread-safe logging with rotation (2MB gz, 60-day retention)
+- `widgets.py` — reusable UI components
+- `_version.py` — VERSION constant to avoid circular imports
 
 ### msg_count semantics differ by source
 - JSONL: counts individual `"kind":"Prompt"` and `"kind":"AssistantMessage"`

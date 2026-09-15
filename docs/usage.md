@@ -40,6 +40,9 @@ Search within the currently selected conversation:
 | Toggle --trust-all-tools | Enable/disable the flag on resume/new |
 | Toggle single-turn sessions | Show/hide sessions with only one exchange (hidden by default) |
 | Toggle untitled sessions | Show/hide sessions with no title (hidden by default) |
+| Reset to Default Settings | Apply default settings immediately and persist |
+
+Settings are auto-saved on every toggle — no separate save step needed.
 
 ## Searching
 
