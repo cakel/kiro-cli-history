@@ -77,6 +77,10 @@ bash uninstall.sh
 uninstall.bat
 ```
 
+## Known issues
+
+- **Command Palette first-open delay**: When opening the Command Palette (`Ctrl+P`) for the first time, you may need to press Enter twice to execute a command. This is due to Textual's internal 0.25s command batching — the first Enter moves focus before results are fully gathered. Subsequent opens work normally.
+
 ## Credits
 
 Fork of [prabhugr/kiro-cli-history](https://github.com/prabhugr/kiro-cli-history).  
