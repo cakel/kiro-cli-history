@@ -16,6 +16,14 @@ This fork: https://github.com/cakel/kiro-cli-history
   - Unix: `~/.local/share/kiro-cli-history/data`
 - Override with `KIRO_HISTORY_DATA_DIR` environment variable
 
+### Debug logging toggle
+- Default: OFF (no log file created)
+- Toggle via Settings menu ("Toggle Debug Logging")
+- Takes effect on next app start
+- Ready popup shows debug status: `"150 sessions loaded (Debug: ON)"`
+- Log file: `kiro-cli-history.log` in data directory
+- Retention: 2MB gz rotation, 60-day cleanup
+
 ### UI/UX improvements
 - Session list: PageUp/Down/Home/End now moves selection index (not just scroll)
 - Modal screen key handling: main app no longer intercepts keys when modal is active
