@@ -242,11 +242,11 @@ class KiroHistory(App):
             self._toggle_untitled
         )
 
-        # --- Load current as Default (bottom, separated) ---
+        # --- Reset to saved defaults (bottom, separated) ---
         yield SystemCommand(
-            "─── Load current as Default",
-            "Save current settings to kiro-cli-history.json as startup defaults",
-            self._save_settings_as_default
+            "─── Reset to saved defaults",
+            "Load kiro-cli-history.json and apply saved settings immediately",
+            self._reset_to_saved_defaults
         )
 
     def _toggle_trust_all_tools(self) -> None:
@@ -281,13 +281,17 @@ class KiroHistory(App):
             log_error("config_save_failed", error=err)
             self.notify(f"{notify_msg} (save failed: {err})", severity="warning")
 
-    def _save_settings_as_default(self) -> None:
-        """Save current settings to config file (explicit menu action)."""
+    def _reset_to_saved_defaults(self) -> None:
+        """Load saved config and apply to current session immediately."""
+        cfg = load_config()
+        self._trust_all_tools = cfg.get("trust_all_tools", _CONFIG_DEFAULTS["trust_all_tools"])
+        self._show_single_turn = cfg.get("show_single_turn", _CONFIG_DEFAULTS["show_single_turn"])
+        self._show_untitled = cfg.get("show_untitled", _CONFIG_DEFAULTS["show_untitled"])
+        self._refresh_sessions()
         trust = "ON" if self._trust_all_tools else "OFF"
         single = "shown" if self._show_single_turn else "hidden"
         untitled = "shown" if self._show_untitled else "hidden"
-        msg = f"Saved defaults: trust-all-tools={trust}, single-turn={single}, untitled={untitled}"
-        self._apply_save_settings(msg)
+        self.notify(f"Defaults loaded: trust-all-tools={trust}, single-turn={single}, untitled={untitled}")
 
     # Table name allowlist for SQL injection prevention
     _SQL_TABLES = {
