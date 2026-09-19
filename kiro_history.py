@@ -32,16 +32,25 @@ from session_store import (
     start_cache_prebuild,
 )
 
-# --- Config / logging ---
+# --- Config ---
 try:
     from config import load_config, save_config, DEFAULT_SETTINGS as _CONFIG_DEFAULTS
-    from app_log import init_logging, log_perf, log_warn, log_error, close_logging
 except ImportError:
-    # Graceful degradation if modules not available
-    _CONFIG_DEFAULTS = {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False, "theme": "textual-dark"}
+    # Graceful degradation if the optional config module is unavailable
+    _CONFIG_DEFAULTS = {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False, "theme": "textual-dark", "debug": False}
     def load_config(): return _CONFIG_DEFAULTS.copy()
     def save_config(s): return (False, "config module not available")
-    def init_logging(): pass
+
+# --- Logging ---
+try:
+    from app_log import init_logging, log_perf, log_warn, log_error, close_logging
+except ImportError:
+    # Logging is optional; preserve the same callable interface when unavailable.
+    print(
+        "[kiro-cli-history] WARNING: app_log.py unavailable; debug logging disabled.",
+        file=sys.stderr,
+    )
+    def init_logging(*args, **kwargs): pass
     def log_perf(*a, **kw): pass
     def log_warn(*a, **kw): pass
     def log_error(*a, **kw): pass
