@@ -143,7 +143,7 @@ def init_logging(debug: bool = False) -> None:
     Args:
         debug: If False (default), logging is disabled — no file created.
                If True, enables file logging with rotation and cleanup.
-    
+
     - Performs log rotation if needed (when debug=True)
     - Cleans up old log files (when debug=True)
     - Opens log file for appending (when debug=True)
@@ -151,7 +151,7 @@ def init_logging(debug: bool = False) -> None:
     Safe to call multiple times — subsequent calls are no-ops.
     """
     global _log_file, _app_version, _logging_enabled
-    
+
     # Already initialized — skip
     if _log_file is not None or _logging_enabled:
         return
@@ -278,7 +278,7 @@ if __name__ == "__main__":
     print()
     
     print("Initializing logging...")
-    init_logging()
+    init_logging(debug=True)
     
     print("Writing test entries...")
     log_perf("self_check_start", version=_app_version)
