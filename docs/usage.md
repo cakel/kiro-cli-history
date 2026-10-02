@@ -1,22 +1,88 @@
 # Usage
 
+## Quick start
+
+```bash
+kiro-cli-history           # open all sessions
+kiro-cli-history .         # open with current directory pre-filtered
+kiro-cli-history /path     # open with specific path pre-filtered
+```
+
+---
+
 ## Keyboard shortcuts
+
+### Session actions
 
 | Key | Action |
 |-----|--------|
-| `/` | Focus search bar (session search) |
-| `Down` / `Up` or `j` / `k` | Navigate sessions |
-| `Right` or `l` | Focus preview pane (for scrolling) |
-| `Left` or `h` | Focus back to session list |
-| `m` or `Space` | Load more messages (lazy loading) |
+| `Ctrl+R` | Resume selected session in Kiro CLI |
+| `Ctrl+N` | Start a new Kiro CLI session (current directory) |
+| `Alt+N` | Resume selected session in a different directory |
+| `Ctrl+Y` | Copy full conversation to clipboard |
+| `Ctrl+X` | Export selected session to `.json.gz` |
+| `Ctrl+Del` | Delete selected session (with confirmation) |
 | `F2` | Rename selected session |
-| `Ctrl+R` | Resume session in Kiro CLI |
-| `Ctrl+N` | Start a new Kiro CLI session |
-| `Ctrl+Y` | Copy conversation to clipboard |
-| `Ctrl+P` | Open command palette |
-| `Ctrl+F` | Search within preview (in-preview search) |
-| `Esc` | Clear search / Close preview search / Quit |
-| `Ctrl+C` | Quit |
+
+### Navigation
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move down in session list |
+| `k` / `↑` | Move up in session list |
+| `→` / `l` | Focus preview pane |
+| `←` / `h` | Focus session list |
+| `m` | Preview page down (also loads more if near bottom) |
+| `M` | Preview page up |
+| `Space` | Load more messages (session list) |
+| `Enter` | Focus preview pane |
+| `PageDown/Up` | Scroll preview or jump list by 10 |
+| `Home/End` | Scroll preview to top/bottom |
+
+### Search
+
+| Key | Action |
+|-----|--------|
+| `/` | Focus text search input |
+| `p` | Focus path filter input |
+| `Ctrl+F` | Open in-preview search |
+| `Esc` | Clear both search inputs (no quit) |
+
+### App
+
+| Key | Action |
+|-----|--------|
+| `?` | Toggle keyboard shortcuts panel (right side) |
+| `Ctrl+P` | Command palette (settings, export, retention) |
+| `Ctrl+Q` | Exit |
+| `Ctrl+C` | Exit (fallback) |
+
+### Korean IME (두벌식) — navigation keys work in Korean mode
+
+| Korean key | English equivalent |
+|-----------|-------------------|
+| `ㅔ` | `p` (path filter) |
+| `ㅓ` | `j` (down) |
+| `ㅏ` | `k` (up) |
+| `ㅡ` | `m` (page down) |
+| `ㅗ` | `h` (session list) |
+| `ㅣ` | `l` (preview) |
+
+---
+
+## Two search inputs
+
+**Text search** (`/` to focus): fuzzy-searches session titles, paths, and full message content.
+
+**Path filter** (`p` to focus): substring match on working directory path. Useful when you know which project the session was in.
+
+```bash
+kiro-cli-history .        # pre-fills path filter with current directory
+```
+
+Both filters compose — path filter narrows the list, text search further narrows within that.
+
+---
 
 ## In-preview search (`Ctrl+F`)
 
@@ -25,47 +91,78 @@ Search within the currently selected conversation:
 | Key | Action |
 |-----|--------|
 | `Ctrl+F` | Open search bar in preview pane |
-| `Enter` | Jump to next match |
-| `Shift+Enter` | Jump to previous match |
+| `Enter` | Next match |
+| `Shift+Tab` | Previous match |
+| `n` / `N` | Next / previous match (when preview has focus) |
 | `Esc` | Close search bar |
 
-- Matching messages are highlighted with a distinct background color
-- Search ignores markdown formatting (backticks, bold `**`, italic `*`)
-- All messages are loaded before searching to ensure complete results
+---
 
 ## Command palette (`Ctrl+P`)
 
 | Command | Description |
 |---------|-------------|
 | Toggle --trust-all-tools | Enable/disable the flag on resume/new |
-| Toggle single-turn sessions | Show/hide sessions with only one exchange (hidden by default) |
-| Toggle untitled sessions | Show/hide sessions with no title (hidden by default) |
-| Reset to Default Settings | Apply default settings immediately and persist |
+| Toggle single-turn sessions | Show/hide sessions with only one exchange |
+| Toggle untitled sessions | Show/hide sessions with no title |
+| Set Retention Days… | Choose 90 / 180 / 365 / ∞ for archive retention |
+| Export All Transcripts… | Save all sessions as `.tar.gz` to current directory |
+| Set Theme… | Change colour theme |
+| Toggle Debug Logging | Enable/disable debug log file |
+| Reset to Default Settings | Apply defaults immediately |
 
-Settings are auto-saved on every toggle — no separate save step needed.
+---
 
-## Searching
+## New session (`Ctrl+N`)
 
-Type in the search bar to fuzzy-search across:
-- Session titles
-- Working directories
-- Full conversation content (every message exchanged)
+Starts `kiro-cli chat` immediately in the current working directory.
 
-Search is case-insensitive and covers all session formats. Multi-word queries
-match independently ("mem leak" matches "Debug memory leak").
+## Resume in new directory (`Alt+N`)
+
+1. Select a session in the list
+2. Press `Alt+N`
+3. `DirConfirmScreen` opens — pre-filled with the session's original directory
+4. Edit the path if needed, press `Enter` to confirm
+5. Runs `kiro-cli chat --resume-id <id>` from the new directory
+
+The directory is created automatically if it doesn't exist.
+
+## Export session (`Ctrl+X`)
+
+Exports the selected session as a compressed JSON file:
+- **Format**: `kiro-YYYYMMDD_HHMMSS-<title>.json.gz`
+- **Location**: current working directory
+- **Contents**: session metadata + all messages
+- Notification shown on completion (bottom-right)
+
+## Delete session (`Ctrl+Del`)
+
+Shows a confirmation dialog (Cancel is default focus — safer).
+- JSONL sessions: deletes `.jsonl` + `.json` sidecar files
+- SQLite sessions: calls `kiro-cli chat --delete-session <id>`
+- Archive sessions: deletes the archive file
+- Session removed from list immediately
+
+---
+
+## Archive (SQLite retention)
+
+SQLite sessions are automatically backed up to an `archive/` directory:
+- New SQLite sessions → `archive/<id>.json` on startup
+- Files older than `retention_days` → compressed to `archive/<id>.json.gz`
+- Configure via `Ctrl+P → Set Retention Days…` (default: 90 days)
+
+---
 
 ## Text selection
 
 Hold **Alt** while dragging to select text from the preview pane.
 Or press `Ctrl+Y` to copy the full conversation to clipboard.
 
+---
+
 ## Lazy loading
 
-- Sessions load in the background on startup; the UI is immediately usable.
-- Preview shows the first 30 messages. Press `m` or `Space` to load more.
-
-## Resuming sessions
-
-`Ctrl+R` exits kiro-cli-history and launches `kiro-cli chat --resume-id <id>` in the same directory the session was started in.
-
-`Ctrl+N` starts a fresh `kiro-cli chat` session in the current directory.
+- Sessions load in the background; UI is immediately usable
+- Preview shows the first 30 messages; press `m` or `Space` to load more
+- ripgrep (bundled) accelerates content search when cold cache

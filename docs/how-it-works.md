@@ -2,77 +2,110 @@
 
 ## Session storage formats
 
-Kiro CLI stores conversations in three formats depending on version and mode:
+Kiro CLI stores conversations in three formats:
 
 | Format | Location | Used by |
 |--------|----------|---------|
-| v3 (JSONL) | `~/.kiro/sessions/cli/*.json` + `*.jsonl` | `kiro-cli --classic` |
-| v2 (SQLite) | platform path (see below), `conversations_v2` table | New TUI mode (`kiro-cli`) |
+| v3 (JSONL) | `~/.kiro/sessions/cli/*.json` + `*.jsonl` | Current kiro-cli |
+| v2 (SQLite) | platform path, `conversations_v2` table | Older kiro-cli |
 | v1 (SQLite) | same database, `conversations` table | Legacy |
+| Archive | `<data_dir>/archive/*.json[.gz]` | kiro-cli-history backup |
 
 SQLite database paths:
 - macOS: `~/Library/Application Support/kiro-cli/data.sqlite3`
 - Windows: `%LOCALAPPDATA%\kiro-cli\data.sqlite3`
 - Linux: `~/.local/share/kiro-cli/data.sqlite3`
 
-kiro-cli-history reads all three and presents them in a unified view.
+kiro-cli-history reads all sources and presents a unified deduplicated view (JSONL > SQLite > Archive priority).
 
-## What each session shows
+## Archive sync
 
-- **Title** - first user message (extracted from session content)
-- **Directory** - where the session was started
-- **Date** - last activity
-- **Message count** - total exchanges
-- **Duration** - time from first to last message ('-' if unavailable)
+On every startup, SQLite sessions are automatically backed up:
+1. New SQLite sessions → `<data_dir>/archive/<session_id>.json`
+2. `.json` files older than `retention_days` → compressed to `.json.gz`, original deleted
+3. Archive sessions appear in the list if not already covered by JSONL/SQLite
 
-## Read-only guarantee
+This preserves SQLite sessions that would otherwise disappear on kiro-cli reinstall.
 
-This tool **never writes to** Kiro CLI session data. SQLite is opened with
-`?mode=ro` URI flag. JSONL files are read-only. Only the `.json` metadata
-sidecar (session title) is written when using `F2` rename, and only via
-atomic tempfile+rename to prevent corruption.
+## Search architecture
+
+```
+search_sessions(query, sessions)
+        │
+        ├─ title / cwd match          (always in-memory, fast)
+        │
+        ├─ rg available?
+        │   ├─ JSONL cold-cache   → rg --files-with-matches -F -i *.jsonl
+        │   └─ archive .json.gz   → rg -z --files-with-matches -F -i *.json.gz
+        │
+        ├─ SQLite / archive warm  → lazy Python (per-session)
+        └─ JSONL warm cache       → _fuzzy_match on _search_text
+```
+
+ripgrep runs one subprocess call per token per directory — much faster than per-file Python I/O on cold cache. Falls back to Python when rg is not available.
+
+## ripgrep bundled binaries
+
+Pre-downloaded to `bin/` in the repo (rg 14.1.1):
+
+| Platform | File |
+|----------|------|
+| Windows x64 | `bin/windows-x64/rg.exe` |
+| macOS Apple Silicon | `bin/macos-arm64/rg` |
+| macOS Intel | `bin/macos-x64/rg` |
+| Linux x64 | `bin/linux-x64/rg` |
+| Linux arm64 | `bin/linux-arm64/rg` |
+
+Install scripts copy the appropriate binary to `<install_dir>/bin/rg[.exe]`. No runtime download needed.
+
+## Read-only guarantee (mostly)
+
+This tool **never writes to** Kiro CLI session data:
+- SQLite opened with `?mode=ro` URI flag
+- JSONL files read-only
+- Exception: `F2` rename writes the `.json` metadata sidecar (atomic tempfile+rename)
+- Exception: `Ctrl+Del` calls `kiro-cli chat --delete-session <id>` (delegated to kiro-cli)
+
+Archive files are written by kiro-cli-history itself (not kiro-cli data).
 
 ## Performance
 
-- **13x faster** initial session loading: byte-level pattern scan instead of
-  full JSON parsing for message counting
-- **Lazy loading**: UI appears immediately; sessions load in background
-- **Incremental preview**: first 30 messages loaded; more on demand with
-  offset-based file reading (no re-scan on each page)
-- **Debounced search**: search_id prevents stale results from fast typing
+- **Lazy loading**: UI appears immediately; sessions load in background thread
+- **Incremental preview**: first 30 messages; more on demand via offset-based reading
+- **Debounced search**: `search_id` counter cancels stale results from fast typing
+- **ripgrep acceleration**: parallel SIMD search on cold-cache JSONL and archive .gz
+- **Prebuild cache**: `start_cache_prebuild()` builds `_search_text` for all JSONL sessions in background
 
 ## Configuration
 
-Settings are stored in `data/kiro-cli-history.json` (relative to install dir):
+Settings stored in `<data_dir>/kiro-cli-history.json`:
 
 ```json
 {
-  "schema_version": 1,
-  "app_version": "v0.1.0-cakel.5",
-  "settings": {
-    "trust_all_tools": true,
-    "show_single_turn": false,
-    "show_untitled": false
-  }
+  "trust_all_tools": true,
+  "show_single_turn": false,
+  "show_untitled": false,
+  "theme": "textual-dark",
+  "debug": false,
+  "retention_days": 90
 }
 ```
 
-- Settings auto-save on every toggle (no separate save step)
-- Atomic write: tempfile + os.replace prevents corruption
-- Schema versioning for future migration
-
 ## Logging
 
-Logs are written to `data/kiro-cli-history.log`:
+Logs always written to `<data_dir>/kiro-cli-history.log`:
 
-- **Rotation**: 2MB limit, compressed to `.gz`
+- **Always on**: ERROR level always recorded (regardless of debug mode)
+- **Debug mode**: PERF + WARN levels added when debug=True
+- **Rotation**: 2MB limit → compressed `.gz`
 - **Retention**: 60 days
-- **Levels**: PERF (performance), WARN (recoverable), ERROR (failures)
-- **Thread-safe**: lock-protected writes
+- **Precision**: millisecond timestamps
+- **ERROR format**: includes `ts=<epoch_ms>` for correlation
 
-Example log entry:
+Example:
 ```
-2026-09-15T14:39:23+09:00 [PERF] app_start version=v0.1.0-cakel.5 sessions=277 load_time=1.015
+2026-10-02T21:22:44.123+09:00 [ERROR] worker_crash ts=1759456964123 event=_load_sessions_async error="..." traceback="..."
+2026-10-02T21:22:44.456+09:00 [PERF] app_start sessions=352 load_time=0.734 spanning_days=84
 ```
 
 ## How this complements Kiro CLI native tools
@@ -80,10 +113,9 @@ Example log entry:
 | | `--resume-picker` (native) | kiro-cli-history |
 |---|---|---|
 | Scope | Current directory only | All directories |
-| Search | Browse by title | Full-text across all messages |
+| Search | Browse by title | Full-text across all messages + ripgrep |
 | Preview | Title + message count | Full conversation with markdown |
-| Resume | By title | By session ID (reliable) |
-
-Kiro CLI's native `--resume-picker` is the right tool when you know which
-directory a session was started in. kiro-cli-history is for when you need to
-find a conversation across all projects.
+| Resume | By title in current dir | By session ID |
+| Resume in new dir | ✗ | `Alt+N` |
+| Export | ✗ | `Ctrl+X` (single), `Ctrl+P` (all) |
+| Archive SQLite | ✗ | Auto-sync on startup |

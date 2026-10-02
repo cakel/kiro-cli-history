@@ -9,15 +9,17 @@ Public API:
     extract_messages(sess, ...) -> list[dict]
     prebuild_cache(sessions)   -> None  (blocks; call in a thread)
     start_cache_prebuild(sessions) -> threading.Thread  (non-blocking)
+    sync_sqlite_to_archive(sessions, retention_days) -> None
 """
 
+import gzip
 import json
 import os
 import sqlite3
 import subprocess
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -35,6 +37,148 @@ SESSIONS_DIR: Path = (
 )
 
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB guard
+
+
+def _get_archive_dir() -> Path:
+    """Archive directory — sibling of config file in kiro-cli-history data dir."""
+    try:
+        from config import get_data_dir
+        return get_data_dir() / "archive"
+    except ImportError:
+        # Fallback for standalone / test use
+        env = os.environ.get("KIRO_HISTORY_DATA_DIR", "")
+        if env:
+            return Path(env) / "archive"
+        if os.name == "nt":
+            return Path(r"C:\ProgramData\kiro-cli-history\data\archive")
+        return Path.home() / ".local" / "share" / "kiro-cli-history" / "data" / "archive"
+
+
+# ---------------------------------------------------------------------------
+# Archive helpers
+# ---------------------------------------------------------------------------
+
+def _read_archive_file(path: Path) -> dict | None:
+    """Read a .json or .json.gz archive file, return parsed dict or None."""
+    try:
+        if path.name.endswith(".json.gz"):
+            with gzip.open(path, "rb") as f:
+                return json.loads(f.read().decode("utf-8"))
+        else:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        return None
+
+
+def _archive_id_from_path(path: Path) -> str:
+    """Extract session_id from archive filename (strips .json or .json.gz)."""
+    name = path.name
+    if name.endswith(".json.gz"):
+        return name[: -len(".json.gz")]
+    if name.endswith(".json"):
+        return name[: -len(".json")]
+    return name
+
+
+def _load_archive_sessions() -> list:
+    """Load session metadata from archive dir. History is lazy-loaded on search."""
+    archive_dir = _get_archive_dir()
+    if not archive_dir.exists():
+        return []
+    sessions = []
+    for path in archive_dir.iterdir():
+        compressed = path.name.endswith(".json.gz")
+        if not compressed and not path.name.endswith(".json"):
+            continue
+        data = _read_archive_file(path)
+        if not data:
+            continue
+        session_id = data.get("session_id", "") or _archive_id_from_path(path)
+        if not session_id:
+            continue
+        sessions.append({
+            "session_id": session_id,
+            "title": data.get("title") or "(untitled)",
+            "cwd": data.get("cwd") or "",
+            "created_at": data.get("created_at") or "",
+            "updated_at": data.get("updated_at") or "",
+            "source": "archive",
+            "msg_count": data.get("msg_count", 0),
+            "duration_min": data.get("duration_min", 0),
+            "is_subagent": data.get("is_subagent", False),
+            "parent_session_id": data.get("parent_session_id"),
+            "archive_path": str(path),
+            "archive_compressed": compressed,
+            "_history": None,  # lazy-loaded on first search
+        })
+    return sessions
+
+
+def _load_archive_history(session: dict) -> list:
+    """Decompress and return history for an archive session (lazy)."""
+    path = session.get("archive_path", "")
+    if not path:
+        return []
+    data = _read_archive_file(Path(path))
+    return data.get("history", []) if data else []
+
+
+def sync_sqlite_to_archive(sqlite_sessions: list, retention_days: int = 90) -> None:
+    """Export new SQLite sessions to archive, compress entries older than retention_days.
+
+    - New SQLite sessions → <archive_dir>/<session_id>.json
+    - .json files with mtime older than retention_days → compressed to .json.gz, original deleted
+    """
+    archive_dir = _get_archive_dir()
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    # Collect existing archive IDs (both compressed and plain)
+    existing_ids = {
+        _archive_id_from_path(p)
+        for p in archive_dir.iterdir()
+        if p.name.endswith(".json") or p.name.endswith(".json.gz")
+    }
+
+    # Export new SQLite sessions
+    for session in sqlite_sessions:
+        session_id = session.get("session_id", "")
+        if not session_id or session_id in existing_ids:
+            continue
+        history = _load_sqlite_history(session) or []
+        export = {
+            "session_id": session_id,
+            "title": session.get("title") or "",
+            "cwd": session.get("cwd") or "",
+            "created_at": session.get("created_at") or "",
+            "updated_at": session.get("updated_at") or "",
+            "msg_count": session.get("msg_count", 0),
+            "duration_min": session.get("duration_min", 0),
+            "is_subagent": session.get("is_subagent", False),
+            "parent_session_id": session.get("parent_session_id"),
+            "history": history,
+        }
+        out_path = archive_dir / f"{session_id}.json"
+        try:
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(export, f, ensure_ascii=False)
+            existing_ids.add(session_id)
+        except OSError:
+            pass
+
+    # Compress .json files older than retention_days
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    for json_path in list(archive_dir.glob("*.json")):
+        try:
+            mtime = datetime.fromtimestamp(json_path.stat().st_mtime)
+            if mtime < cutoff:
+                gz_path = json_path.parent / (json_path.name + ".gz")
+                with open(json_path, "rb") as f_in:
+                    with gzip.open(gz_path, "wb", compresslevel=6) as f_out:
+                        f_out.write(f_in.read())
+                json_path.unlink()
+        except OSError:
+            pass
 
 
 def _sqlite_db_path() -> Path:
@@ -327,6 +471,7 @@ def get_sessions() -> list:
     """Load all sessions from all stores, deduplicated, sorted by recency."""
     jsonl = _load_jsonl_sessions()
     sqlite = _load_sqlite_sessions()
+    archive = _load_archive_sessions()
 
     seen_ids = {s["session_id"] for s in jsonl if s["session_id"]}
     seen_cwds = {s["cwd"] for s in jsonl if not s["session_id"] and s.get("cwd")}
@@ -342,6 +487,13 @@ def get_sessions() -> list:
                 jsonl.append(s)
                 seen_cwds.add(cwd)
 
+    # Archive: only add sessions not already covered by live sources
+    for s in archive:
+        sid = s["session_id"]
+        if sid and sid not in seen_ids:
+            jsonl.append(s)
+            seen_ids.add(sid)
+
     jsonl.sort(
         key=lambda s: s.get("updated_at") or s.get("created_at") or "0",
         reverse=True,
@@ -351,6 +503,72 @@ def get_sessions() -> list:
 
 # ---------------------------------------------------------------------------
 # Search
+# ---------------------------------------------------------------------------
+# ripgrep acceleration (optional — falls back to Python when rg not found)
+# ---------------------------------------------------------------------------
+
+_RG_AVAILABLE: bool | None = None
+
+
+def _rg_path() -> str:
+    """Return path to ripgrep: bundled binary first, then system PATH fallback."""
+    exe = "rg.exe" if os.name == "nt" else "rg"
+    try:
+        from config import get_install_dir
+        bundled = get_install_dir() / "bin" / exe
+        if bundled.exists():
+            return str(bundled)
+    except Exception:
+        pass
+    return "rg"  # system PATH fallback
+
+
+def _rg_available() -> bool:
+    """Check once whether ripgrep is usable (bundled or on PATH); cache result."""
+    global _RG_AVAILABLE
+    if _RG_AVAILABLE is None:
+        try:
+            r = subprocess.run([_rg_path(), "--version"], capture_output=True, timeout=3)
+            _RG_AVAILABLE = r.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            _RG_AVAILABLE = False
+    return _RG_AVAILABLE
+
+
+def _rg_find_in_dir(tokens: list[str], search_dir: Path,
+                    glob: str = "*.jsonl", compressed: bool = False) -> set[str]:
+    """Return set of file paths where ALL tokens match (rg per-token + intersect).
+
+    Args:
+        tokens:      Query tokens (all must match — same semantics as _fuzzy_match).
+        search_dir:  Directory to search.
+        glob:        File glob filter (e.g. '*.jsonl', '*.json').
+        compressed:  Pass -z to rg for .gz files.
+    """
+    if not tokens or not search_dir.exists():
+        return set()
+
+    rg = _rg_path()
+    matching: set[str] | None = None
+    for token in tokens:
+        cmd = [rg, "--files-with-matches", "--fixed-strings", "--ignore-case",
+               f"--glob={glob}"]
+        if compressed:
+            cmd.append("-z")
+        cmd += ["--", token, str(search_dir)]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if result.returncode not in (0, 1):  # 0=match, 1=no match, others=error
+                return set()
+            found = set(result.stdout.splitlines())
+            matching = found if matching is None else matching & found
+            if not matching:
+                break
+        except (subprocess.TimeoutExpired, OSError):
+            return set()
+    return matching or set()
+
+
 # ---------------------------------------------------------------------------
 
 def _fuzzy_match(query: str, text: str) -> bool:
@@ -447,20 +665,64 @@ def start_cache_prebuild(sessions: list, *, on_progress=None) -> threading.Threa
     return t
 
 
+def _search_history(query: str, history: list) -> bool:
+    """Return True if query matches any text in a SQLite/archive history list."""
+    for entry in history:
+        user = entry.get("user", {})
+        content = user.get("content", {})
+        if "Prompt" in content and _fuzzy_match(query, content["Prompt"].get("prompt", "")):
+            return True
+        assistant = entry.get("assistant", {})
+        if isinstance(assistant, dict):
+            a_content = assistant.get("content", {})
+            if "Text" in a_content and _fuzzy_match(query, a_content["Text"]):
+                return True
+            if "Response" in assistant:
+                resp = assistant["Response"]
+                if isinstance(resp, dict) and _fuzzy_match(query, resp.get("content", "")):
+                    return True
+            if "ToolUse" in assistant:
+                tu = assistant["ToolUse"]
+                if isinstance(tu, dict) and _fuzzy_match(query, tu.get("content", "")):
+                    return True
+    return False
+
+
 def search_sessions(query: str, sessions: list) -> list:
     """Fuzzy-search sessions by title, cwd, and conversation content.
 
-    JSONL sessions use the _search_text cache if available; builds it
-    on-demand for any session that hasn't been prebuilt yet.
+    JSONL sessions: uses _search_text cache (warm) or ripgrep / Python (cold).
+    Archive sessions: uses ripgrep -z for .gz when available, Python fallback.
+    SQLite sessions: lazy Python (binary DB, rg can't help).
     """
     if not query:
         return sessions
 
-    results = []
+    tokens = query.lower().split()
 
+    # --- Pre-build rg match sets (one subprocess call per directory) ---
+    rg_jsonl_matched: set[str] | None = None   # set of jsonl_path strings
+    rg_archive_matched: set[str] | None = None  # set of archive_path strings
+
+    if _rg_available():
+        # Only run rg for JSONL if there are cold-cache sessions
+        if any(s.get("source") == "jsonl" and s.get("_search_text") is None
+               for s in sessions):
+            rg_jsonl_matched = _rg_find_in_dir(tokens, SESSIONS_DIR, glob="*.jsonl")
+
+        # Archive: run for both plain and compressed
+        if any(s.get("source") == "archive" for s in sessions):
+            archive_dir = _get_archive_dir()
+            plain = _rg_find_in_dir(tokens, archive_dir, glob="*.json")
+            gz = _rg_find_in_dir(tokens, archive_dir, glob="*.json.gz", compressed=True)
+            rg_archive_matched = plain | gz
+
+    # --- Per-session matching ---
+    results = []
     for session in sessions:
         title = session.get("title") or ""
         cwd = session.get("cwd") or ""
+        # Fast path: title / cwd match (always in-memory)
         if _fuzzy_match(query, title) or _fuzzy_match(query, cwd):
             results.append(session)
             continue
@@ -468,44 +730,44 @@ def search_sessions(query: str, sessions: list) -> list:
         source = session.get("source", "")
 
         if source in ("sqlite_v1", "sqlite_v2"):
-            # SQLite: load history on first search, then cache in session dict
+            # Binary DB — rg can't help; lazy-load history
             history = session.get("_history")
             if history is None:
                 history = _load_sqlite_history(session) or []
-                session["_history"] = history  # cache for subsequent searches
-            found = False
-            for entry in history:
-                user = entry.get("user", {})
-                content = user.get("content", {})
-                if "Prompt" in content and _fuzzy_match(query, content["Prompt"].get("prompt", "")):
-                    found = True
-                    break
-                assistant = entry.get("assistant", {})
-                if isinstance(assistant, dict):
-                    a_content = assistant.get("content", {})
-                    if "Text" in a_content and _fuzzy_match(query, a_content["Text"]):
-                        found = True
-                        break
-                    if "Response" in assistant:
-                        resp = assistant["Response"]
-                        if isinstance(resp, dict) and _fuzzy_match(query, resp.get("content", "")):
-                            found = True
-                            break
-                    if "ToolUse" in assistant:
-                        tu = assistant["ToolUse"]
-                        if isinstance(tu, dict) and _fuzzy_match(query, tu.get("content", "")):
-                            found = True
-                            break
-            if found:
+                session["_history"] = history
+            if _search_history(query, history):
                 results.append(session)
 
+        elif source == "archive":
+            archive_path = session.get("archive_path", "")
+            if rg_archive_matched is not None:
+                # rg result is authoritative for this search round
+                if archive_path in rg_archive_matched:
+                    results.append(session)
+            else:
+                # Python fallback
+                history = session.get("_history")
+                if history is None:
+                    history = _load_archive_history(session) or []
+                    session["_history"] = history
+                if _search_history(query, history):
+                    results.append(session)
+
         elif source == "jsonl":
-            # Use cache if ready; build on-demand otherwise
             search_text = session.get("_search_text")
-            if search_text is None:
+            if search_text is not None:
+                # Warm cache — fast Python match
+                if _fuzzy_match(query, search_text):
+                    results.append(session)
+            elif rg_jsonl_matched is not None:
+                # Cold cache — use rg result; leave _search_text=None for prebuild
+                if session.get("jsonl_path", "") in rg_jsonl_matched:
+                    results.append(session)
+            else:
+                # rg not available — Python fallback, populates cache
                 search_text = _build_search_text(session)
-            if _fuzzy_match(query, search_text):
-                results.append(session)
+                if _fuzzy_match(query, search_text):
+                    results.append(session)
 
     return results
 

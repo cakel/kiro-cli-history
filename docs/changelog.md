@@ -3,6 +3,90 @@
 Upstream: https://github.com/prabhugr/kiro-cli-history  
 This fork: https://github.com/cakel/kiro-cli-history
 
+## v0.1.0-cakel.7 (2026-10-02)
+
+### New features
+
+**Dual search inputs**
+- Text search (`#search-input`) and path filter (`#path-input`) now separate
+- `kiro-cli-history .` pre-fills path filter with current directory absolute path
+- Path filter: case-insensitive substring match on session `cwd`
+
+**Keyboard shortcuts panel (`?`)**
+- `?` toggles a right-side help panel listing all shortcuts
+- `KeysHelpScreen` ModalScreen, dismiss with `?` or `Esc`
+
+**Korean IME navigation**
+- 두벌식 key positions recognized when session list has focus
+- `ㅔ`→p, `ㅓ`→j, `ㅏ`→k, `ㅡ`→m, `ㅗ`→h, `ㅣ`→l
+
+**Preview scroll keys**
+- `m`: preview page down (replaces old load_more binding)
+- `M`: preview page up
+- Both work regardless of which pane has focus
+
+**New session workflows**
+- `Ctrl+N`: immediately starts new `kiro-cli chat` in current directory (no dialog)
+- `Alt+N`: resume selected session in a different directory (`DirConfirmScreen`)
+  - Pre-filled with selected session's original cwd
+  - Directory auto-created if missing
+
+**Export & Delete**
+- `Ctrl+X`: export selected session → `kiro-YYYYMMDD_HHMMSS-<title>.json.gz`
+- `Ctrl+Del`: delete session with `DeleteConfirmScreen` (Cancel default focus)
+  - JSONL: file deletion; SQLite: `kiro-cli --delete-session`; Archive: file deletion
+
+**SQLite archive sync**
+- On startup, new SQLite sessions copied to `<data_dir>/archive/<id>.json`
+- Files older than `retention_days` → `.json.gz` (gzip, compresslevel=6)
+- Archive sessions included in search (lazy history load)
+- ripgrep searches `.json.gz` with `-z` flag
+
+**ripgrep integration (optional, bundled)**
+- 5 platform binaries in `bin/` (rg 14.1.1): Windows x64, macOS arm64/x64, Linux x64/arm64
+- `install.ps1` / `install.sh` copy from `bin/` (no runtime download)
+- Bundled binary takes priority over system `rg`
+- Cold-cache JSONL search and `.json.gz` archive search accelerated
+- Falls back to Python if rg not available
+
+**Command palette additions**
+- `Set Retention Days…`: 90 / 180 / 365 / ∞
+- `Export All Transcripts…`: all sessions → `.tar.gz` in current directory
+- Built-in Textual `Keys` command filtered out (conflicts with `?`)
+
+**Custom shortcut bar**
+- Replaced Textual `Footer()` with custom `#shortcut-bar` Static
+- Yellow key highlights; shows all primary shortcuts on one line
+
+### Bug fixes
+
+| Bug | Fix |
+|-----|-----|
+| `TypeError: can't compare offset-naive and offset-aware datetimes` in `_calc_span_days` | Normalize all datetimes to naive UTC via `.replace(tzinfo=None)` |
+| crash logs not written (debug=False) | `init_logging` always opens log file; ERROR level always written |
+| exceptions after `get_sessions()` not caught | Split into `_load_sessions_body()`, wrapped in try/except with `log_error` |
+| resume crash when directory missing | `os.makedirs(cwd, exist_ok=True)` before `os.chdir` |
+| `#path-input` hidden behind `#search-input` | Removed `dock: top` from both inputs |
+| timestamp precision in logs | Changed `timespec="seconds"` → `timespec="milliseconds"` |
+| ERROR logs missing epoch timestamp | Auto-inject `ts=<epoch_ms>` for ERROR entries |
+
+### Breaking / behavior changes
+
+- `Esc`: no longer quits — clears both search inputs simultaneously
+- `Ctrl+Q`: new quit shortcut (Ctrl+C still works as fallback)
+- `m` key: changed from `load_more` to preview page-down (load_more still via `Space`)
+- `Ctrl+N`: no longer shows dialog, immediately starts new session
+
+### .gitignore additions
+
+```
+kiro-*.json.gz
+kiro-sessions-*.tar.gz
+*.log
+```
+
+---
+
 ## v0.1.0-cakel.6
 
 ### Theme setting

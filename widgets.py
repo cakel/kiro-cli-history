@@ -236,3 +236,502 @@ class ThemePickerScreen(ModalScreen):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+class MissingDirScreen(ModalScreen):
+    """Modal dialog shown when a session's original directory no longer exists."""
+
+    CSS = """
+    MissingDirScreen {
+        align: center middle;
+    }
+    #missing-dir-dialog {
+        width: 80%;
+        height: auto;
+        max-width: 80;
+        border: thick $error;
+        background: $surface;
+        padding: 1 2;
+        align: center middle;
+    }
+    #missing-dir-title {
+        text-align: center;
+        text-style: bold;
+        color: $error;
+        margin-bottom: 1;
+    }
+    #missing-dir-info {
+        text-align: center;
+        margin-bottom: 1;
+    }
+    #missing-dir-buttons {
+        margin-top: 1;
+        align: center middle;
+    }
+    #missing-dir-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, missing_cwd: str):
+        super().__init__()
+        self._missing_cwd = missing_cwd
+
+    def compose(self):
+        with Vertical(id="missing-dir-dialog"):
+            yield Static("Directory Not Found", id="missing-dir-title")
+            yield Static(
+                f"[dim]{self._missing_cwd}[/dim]\n\nHow would you like to resume?",
+                id="missing-dir-info",
+                markup=True,
+            )
+            with Horizontal(id="missing-dir-buttons"):
+                yield Button("Create Directory", variant="primary", id="create-btn")
+                yield Button("Use Current Dir", variant="default", id="current-btn")
+                yield Button("Cancel", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        self.query_one("#create-btn", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "create-btn":
+            self.dismiss("create")
+        elif event.button.id == "current-btn":
+            self.dismiss("current")
+        else:
+            self.dismiss(None)
+
+
+
+class RetentionPickerScreen(ModalScreen):
+    """Modal for picking retention days. Dismisses with chosen int or None."""
+
+    CSS = """
+    RetentionPickerScreen {
+        align: center middle;
+    }
+    #retention-dialog {
+        width: 50;
+        height: auto;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #retention-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #retention-list {
+        height: auto;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, options: list[tuple[str, int]], current: int):
+        super().__init__()
+        self._options = options  # [(label, days), ...]
+        self._current = current
+
+    def compose(self):
+        with Vertical(id="retention-dialog"):
+            yield Static("Set Retention Days", id="retention-title")
+            items = []
+            for label, days in self._options:
+                marker = "✓ " if days == self._current else "  "
+                items.append(ListItem(Static(f"{marker}{label}"), id=f"ret-{days}"))
+            yield ListView(*items, id="retention-list")
+
+    def on_mount(self) -> None:
+        lv = self.query_one("#retention-list", ListView)
+        for i, (_, days) in enumerate(self._options):
+            if days == self._current:
+                lv.index = i
+                break
+        lv.focus()
+
+    @on(ListView.Selected)
+    def _on_selected(self, event: ListView.Selected) -> None:
+        raw = event.item.id[len("ret-"):]
+        self.dismiss(int(raw))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+
+class KeysHelpScreen(ModalScreen):
+    """Left-side keyboard shortcut reference panel. Toggle with '?'."""
+
+    CSS = """
+    KeysHelpScreen {
+        align: right top;
+        background: transparent;
+    }
+    #keys-panel {
+        width: 38;
+        height: 100%;
+        background: $surface;
+        border-left: thick $accent;
+        padding: 1 2;
+        overflow-y: auto;
+    }
+    #keys-title {
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+    .key-row {
+        height: 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("question_mark", "dismiss", "Close"),
+    ]
+
+    SHORTCUT_ROWS = [
+        ("Ctrl+R",       "Resume session"),
+        ("Ctrl+N",       "New session (current dir)"),
+        ("Alt+N",        "Resume selected in new dir"),
+        ("Ctrl+Y",       "Copy conversation"),
+        ("Ctrl+X",       "Export session to .json.gz"),
+        ("Ctrl+Del",     "Delete session"),
+        ("Ctrl+F",       "Search in preview"),
+        ("Ctrl+P",       "Command palette"),
+        ("Ctrl+Q",       "Exit"),
+        ("",             ""),
+        ("/",            "Focus text search"),
+        ("p",            "Focus path filter"),
+        ("j",            "Session list down"),
+        ("k",            "Session list up"),
+        ("m",            "Preview page down"),
+        ("M",            "Preview page up"),
+        ("Enter",        "Focus preview"),
+        ("← / h",       "Focus session list"),
+        ("→ / l",       "Focus preview"),
+        ("",             ""),
+        ("F2",           "Rename session"),
+        ("?",            "Toggle this panel"),
+        ("Esc",          "Clear search / path"),
+    ]
+
+    def compose(self):
+        with Vertical(id="keys-panel"):
+            yield Static("⌨  Keyboard Shortcuts", id="keys-title", markup=True)
+            for key, desc in self.SHORTCUT_ROWS:
+                if not key and not desc:
+                    yield Static("")
+                else:
+                    key_esc = key.replace("[", "\\[")
+                    desc_esc = desc.replace("[", "\\[")
+                    yield Static(
+                        f"[bold cyan]{key_esc:<12}[/bold cyan] {desc_esc}",
+                        markup=True, classes="key-row"
+                    )
+
+
+class NewSessionScreen(ModalScreen):
+    """Dialog for choosing directory for a new kiro-cli session.
+
+    mode="new"     → Create empty session in a new subdirectory (Ctrl+N)
+    mode="history" → Branch from an existing history dir (Ctrl+Alt+N)
+    """
+
+    CSS = """
+    NewSessionScreen {
+        align: center middle;
+    }
+    #new-session-dialog {
+        width: 85%;
+        max-width: 72;
+        height: auto;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #new-session-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #new-session-info {
+        margin-bottom: 1;
+        color: $text-muted;
+    }
+    #new-session-buttons {
+        margin-top: 1;
+        align: center middle;
+    }
+    #new-session-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("left", "prev_button", "Prev", show=False),
+        Binding("right", "next_button", "Next", show=False),
+    ]
+
+    def __init__(self, current_dir: str, history_dir: str, default: str = "history"):
+        super().__init__()
+        self._current_dir = current_dir
+        self._history_dir = history_dir
+        self._mode = default  # "new" or "history"
+
+    def compose(self):
+        import os
+        new_subdir = os.path.join(self._current_dir, "New_Directory")
+
+        with Vertical(id="new-session-dialog"):
+            if self._mode == "new":
+                yield Static(
+                    "Create a new session with Empty history",
+                    id="new-session-title"
+                )
+                yield Static(
+                    f"Current dir:  [dim]{self._current_dir}[/dim]\n"
+                    f"New dir:      [bold]{new_subdir}[/bold]",
+                    id="new-session-info", markup=True
+                )
+                with Horizontal(id="new-session-buttons"):
+                    yield Button("New Directory", variant="primary", id="new-dir-btn")
+                    yield Button("Use Current Dir", id="current-btn")
+                    yield Button("Cancel", id="cancel-btn")
+            else:  # history / branch-out
+                yield Static(
+                    "New session in existing project directory",
+                    id="new-session-title"
+                )
+                same = (not self._history_dir or self._history_dir == self._current_dir)
+                info = (
+                    f"[yellow]No distinct history dir — starts empty session.[/yellow]\n"
+                    f"Current dir:  [dim]{self._current_dir}[/dim]"
+                    if same else
+                    f"Current dir:  [dim]{self._current_dir}[/dim]\n"
+                    f"History dir:  [bold]{self._history_dir}[/bold]"
+                )
+                yield Static(info, id="new-session-info", markup=True)
+                with Horizontal(id="new-session-buttons"):
+                    if not same:
+                        yield Button("History Dir", variant="primary", id="history-btn")
+                    yield Button("Use Current Dir", variant="primary" if same else "default", id="current-btn")
+                    yield Button("Cancel", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        import os
+        focus_id = "new-dir-btn" if self._mode == "new" else "history-btn"
+        try:
+            self.query_one(f"#{focus_id}", Button).focus()
+        except Exception:
+            try:
+                self.query_one("#current-btn", Button).focus()
+            except Exception:
+                pass
+
+    def action_prev_button(self) -> None:
+        buttons = list(self.query(Button))
+        for i, b in enumerate(buttons):
+            if b.has_focus:
+                buttons[(i - 1) % len(buttons)].focus()
+                return
+
+    def action_next_button(self) -> None:
+        buttons = list(self.query(Button))
+        for i, b in enumerate(buttons):
+            if b.has_focus:
+                buttons[(i + 1) % len(buttons)].focus()
+                return
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        import os
+        if event.button.id == "new-dir-btn":
+            # Confirm/edit the new subdirectory path
+            default_new = os.path.join(self._current_dir, "New_Directory")
+            def on_confirmed(path: str | None) -> None:
+                if path is not None:
+                    self.dismiss(path)
+            self.app.push_screen(DirConfirmScreen(default_new), on_confirmed)
+        elif event.button.id == "history-btn":
+            def on_dir_confirmed(path: str | None) -> None:
+                if path is not None:
+                    self.dismiss(path)
+            self.app.push_screen(DirConfirmScreen(self._history_dir), on_dir_confirmed)
+        elif event.button.id == "current-btn":
+            self.dismiss(self._current_dir)
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class DirConfirmScreen(ModalScreen):
+    """Second-step dialog: confirm or edit the chosen directory path."""
+
+    CSS = """
+    DirConfirmScreen {
+        align: center middle;
+    }
+    #dir-confirm-dialog {
+        width: 85%;
+        max-width: 80;
+        height: auto;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    #dir-confirm-title {
+        text-align: center;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    #dir-confirm-label {
+        margin-bottom: 0;
+        color: $text-muted;
+    }
+    #dir-confirm-input {
+        margin: 0 0 1 0;
+        width: 100%;
+    }
+    #dir-confirm-buttons {
+        align: center middle;
+    }
+    #dir-confirm-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("ctrl+enter", "confirm", "Confirm", show=False),
+    ]
+
+    def __init__(self, initial_path: str, title: str = "Confirm Directory"):
+        super().__init__()
+        self._initial_path = initial_path
+        self._title = title
+
+    def compose(self):
+        with Vertical(id="dir-confirm-dialog"):
+            yield Static(self._title, id="dir-confirm-title")
+            yield Static("Directory path (edit if needed):", id="dir-confirm-label")
+            yield Input(value=self._initial_path, id="dir-confirm-input")
+            with Horizontal(id="dir-confirm-buttons"):
+                yield Button("Confirm", variant="primary", id="confirm-btn")
+                yield Button("Cancel", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        inp = self.query_one("#dir-confirm-input", Input)
+        inp.focus()
+        # Move cursor to end
+        inp.cursor_position = len(self._initial_path)
+
+    @on(Input.Submitted, "#dir-confirm-input")
+    def on_input_submitted(self, event) -> None:
+        self.action_confirm()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm-btn":
+            self.action_confirm()
+        else:
+            self.action_cancel()
+
+    def action_confirm(self) -> None:
+        path = self.query_one("#dir-confirm-input", Input).value.strip()
+        self.dismiss(path if path else None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class DeleteConfirmScreen(ModalScreen):
+    """Center confirmation dialog before deleting a session."""
+
+    CSS = """
+    DeleteConfirmScreen {
+        align: center middle;
+    }
+    #delete-dialog {
+        width: 70%;
+        max-width: 64;
+        height: auto;
+        border: thick $error;
+        background: $surface;
+        padding: 1 2;
+    }
+    #delete-title {
+        text-align: center;
+        text-style: bold;
+        color: $error;
+        margin-bottom: 1;
+    }
+    #delete-session-title {
+        text-align: center;
+        margin-bottom: 0;
+    }
+    #delete-warning {
+        text-align: center;
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+    #delete-buttons {
+        margin-top: 1;
+        align: center middle;
+    }
+    #delete-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+        Binding("left", "prev_button", "Prev", show=False),
+        Binding("right", "next_button", "Next", show=False),
+    ]
+
+    def __init__(self, session_title: str):
+        super().__init__()
+        self._session_title = session_title
+
+    def compose(self):
+        safe = self._session_title.replace("[", "\\[")
+        with Vertical(id="delete-dialog"):
+            yield Static("Delete Session", id="delete-title")
+            yield Static(f'[bold]"{safe}"[/bold]', id="delete-session-title", markup=True)
+            yield Static("This cannot be undone.", id="delete-warning")
+            with Horizontal(id="delete-buttons"):
+                yield Button("Cancel", variant="primary", id="cancel-btn")
+                yield Button("Delete", variant="error", id="delete-btn")
+
+    def on_mount(self) -> None:
+        # Default focus on Cancel (safer)
+        self.query_one("#cancel-btn", Button).focus()
+
+    def action_prev_button(self) -> None:
+        buttons = list(self.query(Button))
+        for i, b in enumerate(buttons):
+            if b.has_focus:
+                buttons[(i - 1) % len(buttons)].focus()
+                return
+
+    def action_next_button(self) -> None:
+        buttons = list(self.query(Button))
+        for i, b in enumerate(buttons):
+            if b.has_focus:
+                buttons[(i + 1) % len(buttons)].focus()
+                return
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "delete-btn")
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)

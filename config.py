@@ -29,6 +29,7 @@ DEFAULT_SETTINGS = {
     "show_untitled": False,
     "theme": "textual-dark",
     "debug": False,
+    "retention_days": 90,
 }
 
 

@@ -105,6 +105,39 @@ if [ -n "$GIT_TAG" ]; then
     echo "Injected git version: $GIT_TAG"
 fi
 
+# Install portable ripgrep from bundled bin/
+RG_BIN_DIR="$INSTALL_DIR/bin"
+mkdir -p "$RG_BIN_DIR"
+RG_PATH="$RG_BIN_DIR/rg"
+
+if [ ! -f "$RG_PATH" ]; then
+    ARCH=$(uname -m)
+    OS=$(uname -s)
+    BUNDLED_RG=""
+    case "$OS" in
+        Darwin)
+            case "$ARCH" in
+                arm64)  BUNDLED_RG="$SCRIPT_DIR/bin/macos-arm64/rg" ;;
+                *)      BUNDLED_RG="$SCRIPT_DIR/bin/macos-x64/rg" ;;
+            esac ;;
+        Linux)
+            case "$ARCH" in
+                aarch64|arm64) BUNDLED_RG="$SCRIPT_DIR/bin/linux-arm64/rg" ;;
+                *)             BUNDLED_RG="$SCRIPT_DIR/bin/linux-x64/rg" ;;
+            esac ;;
+    esac
+
+    if [ -n "$BUNDLED_RG" ] && [ -f "$BUNDLED_RG" ]; then
+        cp "$BUNDLED_RG" "$RG_PATH"
+        chmod +x "$RG_PATH"
+        echo "ripgrep installed: $RG_PATH"
+    else
+        echo "WARNING: bundled rg not found for $OS/$ARCH — search will use Python fallback."
+    fi
+else
+    echo "ripgrep already present: $RG_PATH"
+fi
+
 # Create wrapper script atomically (tmp + mv to avoid partial writes)
 WRAPPER_TMP="$(mktemp "$BIN_DIR/.kiro-cli-history.XXXXXX")"
 cat > "$WRAPPER_TMP" << 'WRAPPER_EOF'

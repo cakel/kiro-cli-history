@@ -161,6 +161,20 @@ try {
 }
 Write-OK "Copied kiro_history.py -> $installDir"
 
+# -- 4b. Install portable ripgrep from bundled bin/ --
+$rgExe = Join-Path $binDir "rg.exe"
+if (-not (Test-Path $rgExe)) {
+    $bundledRg = Join-Path $SCRIPT_DIR "bin\windows-x64\rg.exe"
+    if (Test-Path $bundledRg) {
+        Copy-Item -LiteralPath $bundledRg -Destination $rgExe -Force
+        Write-OK "ripgrep installed: $rgExe"
+    } else {
+        Write-Warn "bin\windows-x64\rg.exe not found in repo — search will use Python fallback."
+    }
+} else {
+    Write-OK "ripgrep already present: $rgExe"
+}
+
 # -- 5. Generate kiro-cli-history.bat using venv python --
 $batPath = Join-Path $binDir "kiro-cli-history.bat"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"

@@ -30,6 +30,7 @@ from session_store import (
     search_sessions,
     extract_messages,
     start_cache_prebuild,
+    sync_sqlite_to_archive,
 )
 
 # --- Config ---
@@ -37,7 +38,7 @@ try:
     from config import load_config, save_config, DEFAULT_SETTINGS as _CONFIG_DEFAULTS
 except ImportError:
     # Graceful degradation if the optional config module is unavailable
-    _CONFIG_DEFAULTS = {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False, "theme": "textual-dark", "debug": False}
+    _CONFIG_DEFAULTS = {"trust_all_tools": True, "show_single_turn": False, "show_untitled": False, "theme": "textual-dark", "debug": False, "retention_days": 90}
     def load_config(): return _CONFIG_DEFAULTS.copy()
     def save_config(s): return (False, "config module not available")
 
@@ -102,16 +103,64 @@ def _get_version_string() -> str:
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.message import Message
-from textual.widgets import Footer, Input, Static, ListView, ListItem, RichLog, Button
+from textual.widgets import Input, Static, ListView, ListItem, RichLog, Button
 from rich.text import Text
 from rich.markdown import Markdown
 
 
 # --- UI Components (imported from widgets.py) ---
-from widgets import PreviewSearchInput, RenameScreen, ThemePickerScreen, SessionItem, EasterEggHeader
+from widgets import PreviewSearchInput, RenameScreen, ThemePickerScreen, SessionItem, EasterEggHeader, MissingDirScreen, RetentionPickerScreen, KeysHelpScreen, NewSessionScreen, DirConfirmScreen, DeleteConfirmScreen
+
+# --- Korean 두벌식 → QWERTY conversion ---
+# Used to auto-convert accidental Korean input in search/path fields.
+
+_KO_COMPAT: dict[str, str] = {
+    'ㄱ':'r','ㄲ':'R','ㄴ':'s','ㄷ':'e','ㄸ':'E','ㄹ':'f','ㅁ':'a',
+    'ㅂ':'q','ㅃ':'Q','ㅅ':'t','ㅆ':'T','ㅇ':'d','ㅈ':'w','ㅉ':'W',
+    'ㅊ':'c','ㅋ':'z','ㅌ':'x','ㅍ':'v','ㅎ':'g',
+    'ㅏ':'k','ㅐ':'o','ㅑ':'i','ㅒ':'O','ㅓ':'j','ㅔ':'p','ㅕ':'u',
+    'ㅖ':'P','ㅗ':'h','ㅘ':'hk','ㅙ':'ho','ㅚ':'hl','ㅛ':'y','ㅜ':'n',
+    'ㅝ':'nj','ㅞ':'np','ㅟ':'nl','ㅠ':'b','ㅡ':'m','ㅢ':'ml','ㅣ':'l',
+}
+# NFD decomposed Jamo (syllable components)
+_KO_NFD: dict[str, str] = {
+    '\u1100':'r','\u1101':'R','\u1102':'s','\u1103':'e','\u1104':'E',
+    '\u1105':'f','\u1106':'a','\u1107':'q','\u1108':'Q','\u1109':'t',
+    '\u110A':'T','\u110B':'d','\u110C':'w','\u110D':'W','\u110E':'c',
+    '\u110F':'z','\u1110':'x','\u1111':'v','\u1112':'g',
+    '\u1161':'k','\u1162':'o','\u1163':'i','\u1164':'O','\u1165':'j',
+    '\u1166':'p','\u1167':'u','\u1168':'P','\u1169':'h','\u116A':'hk',
+    '\u116B':'ho','\u116C':'hl','\u116D':'y','\u116E':'n','\u116F':'nj',
+    '\u1170':'np','\u1171':'nl','\u1172':'b','\u1173':'m','\u1174':'ml',
+    '\u1175':'l',
+    '\u11A8':'r','\u11A9':'R','\u11AA':'rt','\u11AB':'s','\u11AC':'sw',
+    '\u11AD':'sg','\u11AE':'e','\u11AF':'f','\u11B0':'fr','\u11B1':'fa',
+    '\u11B2':'fq','\u11B3':'ft','\u11B4':'fx','\u11B5':'fv','\u11B6':'fg',
+    '\u11B7':'a','\u11B8':'q','\u11B9':'qt','\u11BA':'t','\u11BB':'T',
+    '\u11BC':'d','\u11BD':'w','\u11BE':'c','\u11BF':'z','\u11C0':'x',
+    '\u11C1':'v','\u11C2':'g',
+}
+
+def _ko_to_qwerty(text: str) -> tuple[str, bool]:
+    """Convert 두벌식 Korean text to QWERTY. Returns (result, had_korean)."""
+    import unicodedata
+    out, had = [], False
+    for ch in text:
+        cp = ord(ch)
+        if 0xAC00 <= cp <= 0xD7A3:          # composed syllable
+            had = True
+            for j in unicodedata.normalize('NFD', ch):
+                out.append(_KO_NFD.get(j, j))
+        elif ch in _KO_COMPAT:              # standalone Jamo
+            had = True
+            out.append(_KO_COMPAT[ch])
+        else:
+            out.append(ch)
+    return ''.join(out), had
+
 
 # --- Constants ---
-PREVIEW_BATCH_SIZE = 30  # Messages per batch for lazy loading
+PREVIEW_BATCH_SIZE = 30  # Messages per lazy-load batch
 
 
 class KiroHistory(App):
@@ -155,8 +204,14 @@ class KiroHistory(App):
         min-width: 50;
     }
     #search-input {
-        dock: top;
         margin: 0 1;
+    }
+    #path-input {
+        margin: 0 1 0 1;
+        border: tall $panel;
+    }
+    #path-input:focus {
+        border: tall $accent;
     }
     #session-list {
         height: 1fr;
@@ -192,6 +247,13 @@ class KiroHistory(App):
         color: $text;
         padding: 0 1;
     }
+    #shortcut-bar {
+        dock: bottom;
+        height: 1;
+        background: $panel;
+        color: $text-muted;
+        padding: 0 1;
+    }
     SessionItem {
         padding: 0 1;
         height: 3;
@@ -205,23 +267,30 @@ class KiroHistory(App):
     """
 
     BINDINGS = [
-        Binding("ctrl+r", "resume", "Resume session"),
-        Binding("ctrl+n", "new_session", "New session"),
-        Binding("ctrl+y", "copy_conversation", "Copy to clipboard"),
+        Binding("ctrl+r", "resume", "Resume"),
+        Binding("ctrl+n", "new_session", "New"),
+        Binding("alt+n", "new_session_history", "Alt+N Resume+Dir"),
+        Binding("ctrl+y", "copy_conversation", "Copy", show=False),
+        Binding("ctrl+x", "export_session", "Export", show=False),
+        Binding("ctrl+delete", "delete_session", "Delete", show=False),
         Binding("ctrl+f", "open_preview_search", "Search preview", show=False),
-        Binding("f2", "rename_session", "Rename"),
-        Binding("escape", "clear_or_quit", "Clear / Quit"),
-        Binding("ctrl+c", "quit", "Quit"),
-        # Note: j/k/space/slash handled in on_key to avoid Input focus conflicts
+        Binding("f2", "rename_session", "Rename", show=False),
+        Binding("escape", "clear_or_quit", "Clear All", show=False),
+        Binding("ctrl+q", "quit_app", "Exit", show=False),
+        Binding("ctrl+c", "quit", "Quit", show=False),
+        Binding("slash", "focus_search", "Search"),
+        Binding("p", "focus_path", "Path"),
+        Binding("question_mark", "toggle_keys_help", "?"),
+        # Note: j/k/space/m/M handled in on_key to avoid Input focus conflicts
         Binding("right", "focus_preview", "Preview", show=False),
         Binding("l", "focus_preview", "Preview", show=False),
         Binding("left", "focus_list", "List", show=False),
         Binding("h", "focus_list", "List", show=False),
-        Binding("m", "load_more", "More", show=False),
     ]
 
-    def __init__(self):
+    def __init__(self, initial_path_filter: str = ""):
         super().__init__()
+        self._initial_path_filter = initial_path_filter
         self.all_sessions = []
         self.filtered_sessions = []
         self.selected_session = None
@@ -232,6 +301,7 @@ class KiroHistory(App):
         self._show_untitled = cfg.get("show_untitled", _CONFIG_DEFAULTS["show_untitled"])
         self._theme = cfg.get("theme", _CONFIG_DEFAULTS["theme"])
         self._debug = cfg.get("debug", _CONFIG_DEFAULTS["debug"])
+        self._retention_days = cfg.get("retention_days", _CONFIG_DEFAULTS["retention_days"])
         self._viewer_search_query = ""
         # Lazy loading state
         self._preview_messages = []  # Messages loaded so far
@@ -253,9 +323,9 @@ class KiroHistory(App):
     def get_system_commands(self, screen):
         """Add custom commands to the command palette."""
         from textual.app import SystemCommand
-        # Filter out Textual's built-in "Theme" command — we provide our own "Set Theme…"
+        # Filter out Textual's built-in "Theme" and "Keys" commands — we provide our own
         for cmd in super().get_system_commands(screen):
-            if cmd.title == "Theme":
+            if cmd.title in ("Theme", "Keys"):
                 continue
             yield cmd
         
@@ -299,6 +369,21 @@ class KiroHistory(App):
             self._toggle_debug
         )
 
+        # Retention Days
+        retention_label = "∞" if self._retention_days == 0 else f"{self._retention_days}d"
+        yield SystemCommand(
+            f"Set Retention Days… (current: {retention_label})",
+            "How long to keep sessions in archive before compressing (0 = unlimited)",
+            self._open_retention_picker
+        )
+
+        # Export transcripts
+        yield SystemCommand(
+            "Export All Transcripts…",
+            "Compress all sessions to a .tar.gz in the current working directory",
+            self._export_transcripts
+        )
+
         # --- Reset to Default Settings (bottom, separated) ---
         yield SystemCommand(
             "─── Reset to Default Settings",
@@ -315,6 +400,95 @@ class KiroHistory(App):
                 self.theme = theme_name
                 self._apply_save_settings(f"Theme: {theme_name}")
         self.push_screen(ThemePickerScreen(themes, self._theme), on_theme_chosen)
+
+    def _open_retention_picker(self) -> None:
+        """Push retention days picker screen."""
+        options = [("90 days (default)", 90), ("180 days", 180),
+                   ("365 days", 365), ("Unlimited (∞)", 0)]
+        current = self._retention_days
+        def on_chosen(days: int | None) -> None:
+            if days is None:
+                return
+            self._retention_days = days
+            label = "∞" if days == 0 else f"{days}d"
+            self._apply_save_settings(f"Retention: {label}")
+        self.push_screen(RetentionPickerScreen(options, current), on_chosen)
+
+    @work(thread=True)
+    def _export_transcripts(self) -> None:
+        """Export all sessions to a .tar.gz in the current working directory."""
+        import gzip as _gzip
+        import json as _json
+        import tarfile
+        import time as _time
+        from pathlib import Path as _Path
+
+        export_dir = _Path(os.getcwd())
+        ts = _time.strftime("%Y%m%d_%H%M%S")
+        out_path = export_dir / f"kiro-sessions-{ts}.tar.gz"
+
+        sessions = list(self.all_sessions)
+        total = len(sessions)
+
+        self.call_from_thread(
+            self.notify,
+            f"Exporting {total} sessions…",
+            title="Export",
+            timeout=3,
+        )
+
+        try:
+            with tarfile.open(out_path, "w:gz") as tar:
+                for session in sessions:
+                    session_id = session.get("session_id", "") or "unknown"
+                    source = session.get("source", "")
+                    title = (session.get("title") or "(untitled)")[:60]
+
+                    # Build transcript text
+                    try:
+                        from session_store import extract_messages
+                        msgs = extract_messages(session)
+                    except Exception:
+                        msgs = []
+
+                    lines = [
+                        f"Session: {title}",
+                        f"ID: {session_id}",
+                        f"Directory: {session.get('cwd', '')}",
+                        f"Date: {session.get('updated_at', '')}",
+                        f"Source: {source}",
+                        "─" * 60,
+                        "",
+                    ]
+                    for m in msgs:
+                        role = "YOU" if m.get("role") == "you" else "KIRO"
+                        lines.append(f"[{role}]")
+                        lines.append(m.get("text", ""))
+                        lines.append("")
+
+                    content = "\n".join(lines).encode("utf-8")
+                    import io
+                    buf = io.BytesIO(content)
+                    info = tarfile.TarInfo(name=f"{session_id}.txt")
+                    info.size = len(content)
+                    tar.addfile(info, buf)
+
+            size_mb = round(out_path.stat().st_size / 1024 / 1024, 1)
+            self.call_from_thread(
+                self.notify,
+                f"Saved: {out_path.name} ({size_mb} MB, {total} sessions)",
+                title="Export Complete",
+                timeout=8,
+            )
+            log_perf("export_transcripts", sessions=total, path=str(out_path), size_mb=size_mb)
+        except Exception as e:
+            log_error("export_failed", error=str(e))
+            self.call_from_thread(
+                self.notify,
+                f"Export failed: {e}",
+                severity="error",
+                timeout=8,
+            )
 
     def _toggle_trust_all_tools(self) -> None:
         self._trust_all_tools = not self._trust_all_tools
@@ -346,6 +520,7 @@ class KiroHistory(App):
             "show_untitled": self._show_untitled,
             "theme": self._theme,
             "debug": self._debug,
+            "retention_days": self._retention_days,
         }
         ok, err = save_config(settings)
         if ok:
@@ -369,7 +544,7 @@ class KiroHistory(App):
         # Update status bar to reflect new session count
         filtered = self._get_filtered_base()
         self.query_one("#status-bar", Static).update(
-            f" {len(filtered)} sessions | Ctrl+R resume | / search | Ctrl+P menu"
+            f" {len(filtered)} sessions | Ctrl+R resume | / search | p path | Ctrl+P menu"
         )
         # Persist so next startup also uses defaults
         save_config({
@@ -489,6 +664,7 @@ class KiroHistory(App):
         with Horizontal():
             with Vertical(id="left-pane"):
                 yield Input(placeholder="Search sessions...", id="search-input")
+                yield Input(placeholder="Filter by path...", id="path-input")
                 yield ListView(id="session-list")
             with Vertical(id="right-pane"):
                 yield PreviewSearchInput(placeholder="Search in preview... (Esc to close)",
@@ -496,7 +672,7 @@ class KiroHistory(App):
                 yield Static("", id="preview-search-info")
                 yield RichLog(id="preview", wrap=True, highlight=True, markup=True)
         yield Static("", id="status-bar")
-        yield Footer()
+        yield Static("", id="shortcut-bar", markup=True)
 
     def on_mount(self) -> None:
         import time
@@ -505,6 +681,11 @@ class KiroHistory(App):
         if self._theme in self.available_themes:
             self.theme = self._theme
             log_perf("theme_applied", theme=self._theme)
+        # Pre-fill path input if a path filter was passed on the command line
+        if self._initial_path_filter:
+            self.query_one("#path-input", Input).value = self._initial_path_filter
+        # Shortcut bar
+        self.query_one("#shortcut-bar", Static).update(self._shortcut_bar_text())
         # Show loading indicator in the list area and status bar
         list_view = self.query_one("#session-list", ListView)
         list_view.append(ListItem(Static("Loading sessions...", classes="loading-hint")))
@@ -516,9 +697,29 @@ class KiroHistory(App):
     def _load_sessions_async(self, debug: bool) -> None:
         """Load sessions in background thread."""
         import time
+        import traceback
         # Init logging here (worker thread) to avoid blocking on_mount with I/O
         init_logging(debug=debug)
         t0 = time.perf_counter()
+        try:
+            self._load_sessions_body(debug, t0)
+        except Exception as e:
+            tb = traceback.format_exc()
+            log_error("worker_crash", event="_load_sessions_async",
+                      error=str(e), traceback=tb.replace("\n", "\\n"))
+            self.call_from_thread(
+                self.notify,
+                f"Unexpected error: {e}",
+                severity="error",
+                timeout=10,
+            )
+            def mark_error():
+                self._sessions_loading = False
+            self.call_from_thread(mark_error)
+
+    def _load_sessions_body(self, debug: bool, t0: float) -> None:
+        """Actual session loading logic — separated so _load_sessions_async can catch all exceptions."""
+        import time  # needed for time.perf_counter() calls below
         try:
             sessions = get_sessions()
         except Exception as e:
@@ -542,28 +743,34 @@ class KiroHistory(App):
         total_time = time.perf_counter() - self._start_time if self._start_time else load_time
         log_perf("app_start", version=VERSION, sessions=len(sessions), load_time=load_time, total_time=total_time,
                  trust_all_tools=self._trust_all_tools, show_single_turn=self._show_single_turn, show_untitled=self._show_untitled, theme=self._theme)
-        
+
+        # Calculate date span of all sessions
+        span_days = self._calc_span_days(sessions)
+
         # Update shared state on main thread to avoid race conditions
         def update_sessions():
             self.all_sessions = sessions
             self._sessions_loading = False
         self.call_from_thread(update_sessions)
-        
+
         # Apply filters and populate list
         self.call_from_thread(self._refresh_sessions)
+        span_str = f" | {span_days}d history" if span_days else ""
         self.call_from_thread(
             self.query_one("#status-bar", Static).update,
-            f" {len(sessions)} sessions | Ctrl+R resume | / search | Ctrl+P menu"
+            f" {len(sessions)} sessions{span_str} | Ctrl+R resume | / search | p path | Ctrl+P menu"
         )
         debug_status = "Debug: ON" if self._debug else ""
-        ready_msg = f"{len(sessions)} sessions loaded"
+        retention_str = f"retention: {self._retention_days}d"
+        span_note = f"spanning {span_days} days" if span_days else "no date info"
+        ready_msg = f"{len(sessions)} sessions loaded | {span_note} | {retention_str}"
         if debug_status:
             ready_msg = f"{ready_msg} ({debug_status})"
         self.call_from_thread(
             self.notify,
             ready_msg,
             title="Ready",
-            timeout=3,
+            timeout=5,
         )
         # If user typed search query while loading, apply it now
         def apply_search():
@@ -574,6 +781,15 @@ class KiroHistory(App):
         self.call_from_thread(apply_search)
         # Kick off background cache prebuild so subsequent searches are instant
         start_cache_prebuild(sessions)
+        # Sync SQLite sessions to archive in background (non-blocking)
+        sqlite_sessions = [s for s in sessions if s.get("source") in ("sqlite_v1", "sqlite_v2")]
+        if sqlite_sessions:
+            import threading as _threading
+            _threading.Thread(
+                target=sync_sqlite_to_archive,
+                args=(sqlite_sessions, self._retention_days),
+                daemon=True,
+            ).start()
 
     def _populate_list(self, sessions):
         list_view = self.query_one("#session-list", ListView)
@@ -588,9 +804,16 @@ class KiroHistory(App):
         # Don't search while sessions are still loading
         if self._sessions_loading:
             return
-        # Increment search ID to invalidate stale results
         self._search_id += 1
         self._do_search(event.value, self._search_id)
+
+    @on(Input.Changed, "#path-input")
+    def on_path_changed(self, event: Input.Changed) -> None:
+        # Don't filter while sessions are still loading
+        if self._sessions_loading:
+            return
+        self._search_id += 1
+        self._refresh_sessions()
 
     def on_key(self, event) -> None:
         """Handle key events for navigation."""
@@ -599,6 +822,7 @@ class KiroHistory(App):
             return  # Let modal screens handle their own keys
         
         search_input = self.query_one("#search-input", Input)
+        path_input = self.query_one("#path-input", Input)
         list_view = self.query_one("#session-list", ListView)
         preview = self.query_one("#preview", RichLog)
         ps = self.query_one("#preview-search", Input)
@@ -622,6 +846,14 @@ class KiroHistory(App):
         # Skip special key handling when session search Input has focus
         if search_input.has_focus:
             # Only handle down/j to move to session list
+            if event.key in ("down", "j"):
+                event.prevent_default()
+                event.stop()
+                list_view.focus()
+            return
+
+        # Skip special key handling when path filter Input has focus
+        if path_input.has_focus:
             if event.key in ("down", "j"):
                 event.prevent_default()
                 event.stop()
@@ -705,12 +937,7 @@ class KiroHistory(App):
             if event.key == "pagedown":
                 event.prevent_default()
                 event.stop()
-                preview.scroll_page_down()
-                # Auto-load more when scrolled near bottom
-                if not self._preview_all_loaded:
-                    max_scroll = preview.virtual_size.height - preview.size.height
-                    if max_scroll > 0 and preview.scroll_y >= max_scroll - 10:
-                        self.action_load_more()
+                self._scroll_preview_page_down(preview)
                 return
             # Page Up: scroll up
             if event.key == "pageup":
@@ -753,6 +980,40 @@ class KiroHistory(App):
             search_input.focus()
             return
 
+        # p: focus path filter input
+        if event.key == "p":
+            event.prevent_default()
+            event.stop()
+            path_input.focus()
+            return
+
+        # Korean IME equivalents (두벌식 layout — pure key position, not character)
+        # ㅔ = p key,  ㅓ = j key,  ㅏ = k key,  ㅗ = h key,  ㅡ = m key,  ㅣ = l key
+        _korean_map = {
+            "ㅔ": path_input.focus,                # p → path filter
+            "ㅓ": list_view.action_cursor_down,    # j → down
+            "ㅏ": list_view.action_cursor_up,      # k → up
+            "ㅗ": list_view.focus,                 # h → focus list
+            "ㅣ": preview.focus,                   # l → focus preview
+            "ㅡ": lambda: self._scroll_preview_page_down(preview),  # m → page down
+        }
+        if event.key in _korean_map:
+            event.prevent_default()
+            event.stop()
+            _korean_map[event.key]()
+            return
+
+        # m / M — preview page down / up (works from any focus except Input)
+        if event.key == "m":
+            event.prevent_default()
+            event.stop()
+            self._scroll_preview_page_down(preview)
+            return
+        if event.key == "M":
+            event.prevent_default()
+            event.stop()
+            preview.scroll_page_up()
+            return
     @work(thread=True)
     def _do_search(self, query: str, search_id: int = 0) -> None:
         import time
@@ -780,7 +1041,7 @@ class KiroHistory(App):
             status_text = f" {len(results)}/{len(self.all_sessions)} sessions"
             if query:
                 status_text += f" matching '{query}'"
-            status_text += " | Ctrl+R resume | / search"
+            status_text += " | Ctrl+R resume | / search | p path"
             self.query_one("#status-bar", Static).update(status_text)
         
         self.call_from_thread(update_results)
@@ -915,6 +1176,50 @@ class KiroHistory(App):
 
     # --- Actions ---
 
+    @staticmethod
+    def _shortcut_bar_text() -> str:
+        def k(key: str) -> str:
+            return f"[bold yellow]{key}[/bold yellow]"
+        return (
+            f" {k('^Y')} Copy  {k('^X')} Export  {k('^Del')} Delete  "
+            f"{k('^R')} Resume  {k('^N')} New  {k('⌥N')} Resume+Dir  "
+            f"{k('m')} Page↓  {k('M')} Page↑  "
+            f"{k('/')} Search  {k('p')} Path  "
+            f"{k('?')} Help  {k('F2')} Rename  "
+            f"{k('Esc')} Clear  {k('^Q')} Exit"
+        )
+
+    def _scroll_preview_page_down(self, preview=None) -> None:
+        """Scroll preview pane down one page, auto-loading more if near bottom."""
+        if preview is None:
+            from textual.widgets import RichLog
+            preview = self.query_one("#preview", RichLog)
+        preview.scroll_page_down()
+        if not self._preview_all_loaded:
+            max_scroll = preview.virtual_size.height - preview.size.height
+            if max_scroll > 0 and preview.scroll_y >= max_scroll - 10:
+                self.action_load_more()
+
+    def _calc_span_days(self, sessions: list) -> int:
+        """Return the number of days between the oldest and newest session. 0 if unknown."""
+        from datetime import datetime as _dt
+        dates = []
+        for s in sessions:
+            for field in ("created_at", "updated_at"):
+                val = s.get(field, "")
+                if val:
+                    try:
+                        dt = _dt.fromisoformat(val.replace("Z", "+00:00"))
+                        # Normalize to naive UTC so aware/naive never mix
+                        if dt.tzinfo is not None:
+                            dt = dt.replace(tzinfo=None)
+                        dates.append(dt)
+                    except ValueError:
+                        pass
+        if len(dates) < 2:
+            return 0
+        return max(0, (max(dates) - min(dates)).days)
+
     def _refresh_sessions(self) -> None:
         """Refresh session list with current filter settings."""
         filtered = self._get_filtered_base()
@@ -928,7 +1233,7 @@ class KiroHistory(App):
             self._populate_list(self.filtered_sessions)
 
     def _get_filtered_base(self) -> list:
-        """Return sessions after applying single-turn and untitled filters."""
+        """Return sessions after applying single-turn, untitled, and path filters."""
         filtered = self.all_sessions
 
         # Filter single-turn sessions (subagent sessions or very few messages)
@@ -940,6 +1245,18 @@ class KiroHistory(App):
             filtered = [
                 s for s in filtered
                 if s.get("title") not in [None, "", "(untitled)"]
+            ]
+
+        # Filter by path (substring match on cwd, case-insensitive)
+        try:
+            path_query = self.query_one("#path-input", Input).value.strip()
+        except Exception:
+            path_query = ""
+        if path_query:
+            path_lower = path_query.lower()
+            filtered = [
+                s for s in filtered
+                if path_lower in (s.get("cwd") or "").lower()
             ]
 
         return filtered
@@ -1003,30 +1320,191 @@ class KiroHistory(App):
         cwd = self.selected_session.get("cwd", "")
         if not cwd or not os.path.isdir(cwd):
             log_warn("resume_dir_not_found", session_id=session_id, cwd=cwd)
-            self.notify(f"Directory not found: {cwd}", severity="error")
+
+            def handle_missing_dir(choice: str | None) -> None:
+                if choice is None:
+                    return
+                if choice == "create":
+                    try:
+                        os.makedirs(cwd, exist_ok=True)
+                        resume_cwd = cwd
+                    except OSError as e:
+                        self.notify(f"Failed to create directory: {e}", severity="error")
+                        return
+                else:  # "current"
+                    resume_cwd = os.getcwd()
+                session = dict(self.selected_session)
+                session["cwd"] = resume_cwd
+                log_perf("resume", session_id=session_id)
+                self.exit(result=("resume", session, self._trust_all_tools))
+
+            self.push_screen(MissingDirScreen(cwd), handle_missing_dir)
             return
         log_perf("resume", session_id=session_id)
         self.exit(result=("resume", self.selected_session, self._trust_all_tools))
 
     def action_new_session(self) -> None:
-        """Start a new kiro-cli session in the current directory."""
-        log_perf("new_session")
-        self.exit(result=("new", None, self._trust_all_tools))
+        """Start a new kiro-cli session in the current directory immediately."""
+        log_perf("new_session", cwd=os.getcwd())
+        self.exit(result=("new", {"cwd": os.getcwd()}, self._trust_all_tools))
+
+    def action_new_session_history(self) -> None:
+        """Resume the selected session in a new/different directory (Alt+N)."""
+        if not self.selected_session:
+            self.notify("Select a session first, then press Alt+N.", severity="warning", timeout=4)
+            return
+        session_id = self.selected_session.get("session_id", "")
+        if not session_id:
+            self.notify("Selected session has no ID — cannot resume.", severity="error", timeout=4)
+            return
+
+        title_raw = self.selected_session.get("title") or "(untitled)"
+        title_short = title_raw[:40]
+        # Default = selected session's original directory
+        default_dir = self.selected_session.get("cwd") or os.getcwd()
+
+        def on_dir_chosen(path: str | None) -> None:
+            if not path:
+                return
+            session = dict(self.selected_session)
+            session["cwd"] = path
+            log_perf("resume_new_dir", session_id=session_id, new_cwd=path)
+            self.exit(result=("resume", session, self._trust_all_tools))
+
+        self.push_screen(
+            DirConfirmScreen(
+                default_dir,
+                title=f"Resume with New Directory\n[dim]{title_short}[/dim]"
+            ),
+            on_dir_chosen
+        )
+
+    def action_toggle_keys_help(self) -> None:
+        """Toggle the keyboard shortcuts help panel."""
+        if isinstance(self.screen, KeysHelpScreen):
+            self.pop_screen()
+        else:
+            self.push_screen(KeysHelpScreen())
 
     def action_focus_search(self) -> None:
         self.query_one("#search-input", Input).focus()
 
+    def action_focus_path(self) -> None:
+        self.query_one("#path-input", Input).focus()
+
     def action_clear_or_quit(self) -> None:
-        # Close preview search first if active
+        # Close preview search if active
         if self._preview_search_active:
             self._close_preview_search()
             return
+        # Close keys help panel if open
+        if isinstance(self.screen, KeysHelpScreen):
+            self.pop_screen()
+            return
+        # Clear BOTH inputs at once
         search = self.query_one("#search-input", Input)
-        if search.value:
+        path = self.query_one("#path-input", Input)
+        if search.value or path.value:
             search.value = ""
+            path.value = ""
             search.focus()
-        else:
-            self.exit()
+
+    def action_quit_app(self) -> None:
+        """Quit the application."""
+        self.exit()
+
+    def action_export_session(self) -> None:
+        """Export the selected session to a .json.gz file in the current directory."""
+        if not self.selected_session:
+            self.notify("No session selected.", severity="warning", timeout=3)
+            return
+        self._export_single_session_worker(self.selected_session)
+
+    @work(thread=True)
+    def _export_single_session_worker(self, session: dict) -> None:
+        import gzip as _gzip
+        import json as _json
+        import time as _time
+        from session_store import extract_messages
+
+        session_id = session.get("session_id", "unknown")
+        title = (session.get("title") or "untitled")[:30]
+        safe_title = "".join(c if c.isalnum() or c in "- " else "_" for c in title).strip()
+        ts = _time.strftime("%Y%m%d_%H%M%S")
+        filename = f"kiro-{ts}-{safe_title[:24]}.json.gz"
+        out_path = os.path.join(os.getcwd(), filename)
+
+        try:
+            msgs = extract_messages(session)
+            export = {
+                "session_id": session_id,
+                "title": session.get("title", ""),
+                "cwd": session.get("cwd", ""),
+                "created_at": session.get("created_at", ""),
+                "updated_at": session.get("updated_at", ""),
+                "messages": [{"role": m["role"], "text": m["text"]} for m in msgs],
+            }
+            content = _json.dumps(export, ensure_ascii=False, indent=2).encode("utf-8")
+            with _gzip.open(out_path, "wb", compresslevel=6) as f:
+                f.write(content)
+            size_kb = round(os.path.getsize(out_path) / 1024, 1)
+            log_perf("export_session", session_id=session_id, path=out_path, size_kb=size_kb)
+            self.call_from_thread(
+                self.notify,
+                f"{filename}  ({size_kb} KB)",
+                title="Exported",
+                timeout=6,
+            )
+        except Exception as e:
+            log_error("export_session_failed", error=str(e))
+            self.call_from_thread(
+                self.notify, f"Export failed: {e}", severity="error", timeout=6
+            )
+
+    def action_delete_session(self) -> None:
+        """Delete the selected session with confirmation."""
+        if not self.selected_session:
+            self.notify("No session selected.", severity="warning", timeout=3)
+            return
+        title = (self.selected_session.get("title") or "(untitled)")[:60]
+
+        def on_confirmed(confirmed: bool) -> None:
+            if confirmed:
+                self._do_delete_session(self.selected_session)
+
+        self.push_screen(DeleteConfirmScreen(title), on_confirmed)
+
+    def _do_delete_session(self, session: dict) -> None:
+        from pathlib import Path as _Path
+        source = session.get("source", "")
+        session_id = session.get("session_id", "")
+
+        try:
+            if source == "jsonl":
+                jsonl_path = session.get("jsonl_path", "")
+                if jsonl_path:
+                    _Path(jsonl_path).unlink(missing_ok=True)
+                    _Path(jsonl_path).with_suffix(".json").unlink(missing_ok=True)
+            elif source in ("sqlite_v1", "sqlite_v2"):
+                import subprocess as _sp
+                _sp.run(["kiro-cli", "chat", "--delete-session", session_id],
+                        capture_output=True, timeout=5)
+            elif source == "archive":
+                archive_path = session.get("archive_path", "")
+                if archive_path:
+                    _Path(archive_path).unlink(missing_ok=True)
+        except Exception as e:
+            log_error("delete_session_failed", session_id=session_id, error=str(e))
+            self.notify(f"Delete failed: {e}", severity="error", timeout=6)
+            return
+
+        # Remove from in-memory state and refresh
+        self.all_sessions = [s for s in self.all_sessions
+                             if s.get("session_id") != session_id]
+        self.selected_session = None
+        self._refresh_sessions()
+        log_perf("delete_session", session_id=session_id, source=source)
+        self.notify("Session deleted.", timeout=3)
 
     def action_cursor_down(self) -> None:
         self.query_one("#session-list", ListView).action_cursor_down()
@@ -1545,8 +2023,16 @@ class KiroHistory(App):
 def main():
     import atexit
     atexit.register(close_logging)
-    
-    app = KiroHistory()
+
+    # Optional positional argument: directory path filter
+    # e.g. `kiro-cli-history .` or `kiro-cli-history /some/path`
+    initial_path_filter = ""
+    if len(sys.argv) > 1:
+        raw = sys.argv[1]
+        resolved = os.path.abspath(raw)
+        initial_path_filter = resolved
+
+    app = KiroHistory(initial_path_filter=initial_path_filter)
     result = app.run()
 
     if result and isinstance(result, tuple) and result[0] == "resume":
@@ -1554,9 +2040,17 @@ def main():
         trust_all_tools = result[2] if len(result) > 2 else True
         cwd = session.get("cwd", "")
         session_id = session.get("session_id", "")
-        print(f"\nResuming session: {session.get('title', '(untitled)')}")
+        title = session.get("title", "(untitled)")
+        print(f"\nResuming: {title[:60]}")
         print(f"Session ID: {session_id}")
         print(f"Directory: {cwd}\n")
+        if not os.path.isdir(cwd):
+            try:
+                os.makedirs(cwd, exist_ok=True)
+                print(f"Created directory: {cwd}\n")
+            except OSError as e:
+                print(f"ERROR: Could not create directory {cwd!r}: {e}", file=sys.stderr)
+                sys.exit(1)
         os.chdir(cwd)
         cmd = ["kiro-cli", "chat", "--resume-id", session_id]
         if trust_all_tools:
@@ -1571,13 +2065,18 @@ def main():
                 sys.exit(1)
 
     elif result and isinstance(result, tuple) and result[0] == "new":
+        session = result[1]  # {"cwd": ...} or None
         trust_all_tools = result[2] if len(result) > 2 else True
-        print("\nStarting new kiro-cli session...\n")
+        cwd = (session.get("cwd") if session else None) or os.getcwd()
+        if not os.path.isdir(cwd):
+            os.makedirs(cwd, exist_ok=True)
+        print(f"\nStarting new kiro-cli session in: {cwd}\n")
+        os.chdir(cwd)
         cmd = ["kiro-cli", "chat"]
         if trust_all_tools:
             cmd.append("--trust-all-tools")
         if sys.platform == "win32":
-            subprocess.run(cmd)
+            subprocess.run(cmd, cwd=cwd)
         else:
             try:
                 os.execvp("kiro-cli", cmd)

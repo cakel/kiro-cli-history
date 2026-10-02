@@ -155,20 +155,14 @@ def init_logging(debug: bool = False) -> None:
     # Already initialized — skip
     if _log_file is not None or _logging_enabled:
         return
-    
+
     _app_version = _get_app_version()
-    
-    # Debug off — do nothing, logging remains disabled
-    if not debug:
-        return
-    
-    _logging_enabled = True
-    
-    # Rotate and cleanup first
+    _logging_enabled = debug  # True only when debug mode requested
+
+    # Always open log file — ERROR entries are written regardless of debug mode
     _rotate_logs()
     _cleanup_old_logs()
-    
-    # Open log file (line-buffered for crash safety)
+
     try:
         log_path = _get_log_path()
         _log_file = open(log_path, "a", encoding="utf-8", buffering=1)
@@ -194,8 +188,8 @@ def close_logging() -> None:
 # ---------------------------------------------------------------------------
 
 def _format_timestamp() -> str:
-    """Get current timestamp in ISO 8601 format with timezone (RFC 3339)."""
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    """Get current timestamp in ISO 8601 format with timezone (RFC 3339), millisecond precision."""
+    return datetime.now().astimezone().isoformat(timespec="milliseconds")
 
 
 def _format_kwargs(kwargs: dict) -> str:
@@ -213,11 +207,22 @@ def _format_kwargs(kwargs: dict) -> str:
 
 
 def _write_log(level: str, event: str, **kwargs) -> None:
-    """Write a log entry. Thread-safe."""
+    """Write a log entry. Thread-safe.
+    
+    ERROR is always written (regardless of debug mode).
+    PERF and WARN are only written when debug mode is enabled.
+    """
     if _log_file is None:
         return
-    
+    # Gate verbose levels behind debug mode; ERROR always passes
+    if level != "ERROR" and not _logging_enabled:
+        return
+
     timestamp = _format_timestamp()
+    # For ERROR entries, auto-inject epoch_ms for easier programmatic correlation
+    if level == "ERROR":
+        import time as _time
+        kwargs = {"ts": int(_time.time() * 1000), **kwargs}
     kwargs_str = _format_kwargs(kwargs) if kwargs else ""
     
     if kwargs_str:
