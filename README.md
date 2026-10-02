@@ -19,6 +19,7 @@ Kiro CLI has great built-in [conversation persistence](https://kiro.dev/docs/cli
 - **One-key resume** - press `Ctrl+R` to jump into Kiro CLI and continue the conversation
 - **Session management** - rename sessions (`F2`), hide single-turn and untitled sessions
 - **Lazy loading** - fast startup with background session loading; preview loads incrementally
+- **ripgrep acceleration** - bundled rg binary speeds up cold-cache search; falls back to Python when unavailable
 - **Copy to clipboard** - press `Ctrl+Y` to copy an entire conversation
 - **All session formats** - reads all three Kiro CLI storage versions (v1 SQLite, v2 SQLite, v3 JSONL)
 
