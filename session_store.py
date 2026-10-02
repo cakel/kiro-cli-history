@@ -40,12 +40,14 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB guard
 
 
 def _get_archive_dir() -> Path:
-    """Archive directory — sibling of config file in kiro-cli-history data dir."""
+    """Archive directory — respects KIRO_DEMO_DIR for test isolation."""
+    # Demo/test mode: keep archive inside demo dir to avoid polluting real data
+    if _DEMO_DIR:
+        return Path(_DEMO_DIR) / "kiro-cli-history" / "archive"
     try:
         from config import get_data_dir
         return get_data_dir() / "archive"
     except ImportError:
-        # Fallback for standalone / test use
         env = os.environ.get("KIRO_HISTORY_DATA_DIR", "")
         if env:
             return Path(env) / "archive"

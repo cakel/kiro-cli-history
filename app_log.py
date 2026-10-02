@@ -159,16 +159,17 @@ def init_logging(debug: bool = False) -> None:
     _app_version = _get_app_version()
     _logging_enabled = debug  # True only when debug mode requested
 
-    # Always open log file — ERROR entries are written regardless of debug mode
-    _rotate_logs()
-    _cleanup_old_logs()
-
-    try:
-        log_path = _get_log_path()
-        _log_file = open(log_path, "a", encoding="utf-8", buffering=1)
-    except OSError as e:
-        _log_file = None
-        print(f"[kiro-cli-history] Warning: could not open log file: {e}", file=sys.stderr)
+    if debug:
+        # Debug mode: open file immediately for all log levels
+        _rotate_logs()
+        _cleanup_old_logs()
+        try:
+            log_path = _get_log_path()
+            _log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+        except OSError as e:
+            _log_file = None
+            print(f"[kiro-cli-history] Warning: could not open log file: {e}", file=sys.stderr)
+    # Non-debug: file stays None; ERROR will lazy-open it on first write
 
 
 def close_logging() -> None:
@@ -209,11 +210,23 @@ def _format_kwargs(kwargs: dict) -> str:
 def _write_log(level: str, event: str, **kwargs) -> None:
     """Write a log entry. Thread-safe.
     
-    ERROR is always written (regardless of debug mode).
+    ERROR is always written (lazy-opens file if needed, even in non-debug mode).
     PERF and WARN are only written when debug mode is enabled.
     """
+    global _log_file
+
     if _log_file is None:
-        return
+        if level != "ERROR":
+            return  # Non-error: skip if file not open
+        # ERROR: lazy-open file now (first error in non-debug mode)
+        try:
+            _rotate_logs()
+            _cleanup_old_logs()
+            log_path = _get_log_path()
+            _log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+        except OSError:
+            return  # Can't open file — silently skip
+
     # Gate verbose levels behind debug mode; ERROR always passes
     if level != "ERROR" and not _logging_enabled:
         return
