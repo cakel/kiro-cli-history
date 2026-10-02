@@ -109,56 +109,7 @@ from rich.markdown import Markdown
 
 
 # --- UI Components (imported from widgets.py) ---
-from widgets import PreviewSearchInput, RenameScreen, ThemePickerScreen, SessionItem, EasterEggHeader, MissingDirScreen, RetentionPickerScreen, KeysHelpScreen, NewSessionScreen, DirConfirmScreen, DeleteConfirmScreen
-
-# --- Korean 두벌식 → QWERTY conversion ---
-# Used to auto-convert accidental Korean input in search/path fields.
-
-_KO_COMPAT: dict[str, str] = {
-    'ㄱ':'r','ㄲ':'R','ㄴ':'s','ㄷ':'e','ㄸ':'E','ㄹ':'f','ㅁ':'a',
-    'ㅂ':'q','ㅃ':'Q','ㅅ':'t','ㅆ':'T','ㅇ':'d','ㅈ':'w','ㅉ':'W',
-    'ㅊ':'c','ㅋ':'z','ㅌ':'x','ㅍ':'v','ㅎ':'g',
-    'ㅏ':'k','ㅐ':'o','ㅑ':'i','ㅒ':'O','ㅓ':'j','ㅔ':'p','ㅕ':'u',
-    'ㅖ':'P','ㅗ':'h','ㅘ':'hk','ㅙ':'ho','ㅚ':'hl','ㅛ':'y','ㅜ':'n',
-    'ㅝ':'nj','ㅞ':'np','ㅟ':'nl','ㅠ':'b','ㅡ':'m','ㅢ':'ml','ㅣ':'l',
-}
-# NFD decomposed Jamo (syllable components)
-_KO_NFD: dict[str, str] = {
-    '\u1100':'r','\u1101':'R','\u1102':'s','\u1103':'e','\u1104':'E',
-    '\u1105':'f','\u1106':'a','\u1107':'q','\u1108':'Q','\u1109':'t',
-    '\u110A':'T','\u110B':'d','\u110C':'w','\u110D':'W','\u110E':'c',
-    '\u110F':'z','\u1110':'x','\u1111':'v','\u1112':'g',
-    '\u1161':'k','\u1162':'o','\u1163':'i','\u1164':'O','\u1165':'j',
-    '\u1166':'p','\u1167':'u','\u1168':'P','\u1169':'h','\u116A':'hk',
-    '\u116B':'ho','\u116C':'hl','\u116D':'y','\u116E':'n','\u116F':'nj',
-    '\u1170':'np','\u1171':'nl','\u1172':'b','\u1173':'m','\u1174':'ml',
-    '\u1175':'l',
-    '\u11A8':'r','\u11A9':'R','\u11AA':'rt','\u11AB':'s','\u11AC':'sw',
-    '\u11AD':'sg','\u11AE':'e','\u11AF':'f','\u11B0':'fr','\u11B1':'fa',
-    '\u11B2':'fq','\u11B3':'ft','\u11B4':'fx','\u11B5':'fv','\u11B6':'fg',
-    '\u11B7':'a','\u11B8':'q','\u11B9':'qt','\u11BA':'t','\u11BB':'T',
-    '\u11BC':'d','\u11BD':'w','\u11BE':'c','\u11BF':'z','\u11C0':'x',
-    '\u11C1':'v','\u11C2':'g',
-}
-
-def _ko_to_qwerty(text: str) -> tuple[str, bool]:
-    """Convert 두벌식 Korean text to QWERTY. Returns (result, had_korean)."""
-    import unicodedata
-    out, had = [], False
-    for ch in text:
-        cp = ord(ch)
-        if 0xAC00 <= cp <= 0xD7A3:          # composed syllable
-            had = True
-            for j in unicodedata.normalize('NFD', ch):
-                out.append(_KO_NFD.get(j, j))
-        elif ch in _KO_COMPAT:              # standalone Jamo
-            had = True
-            out.append(_KO_COMPAT[ch])
-        else:
-            out.append(ch)
-    return ''.join(out), had
-
-
+from widgets import PreviewSearchInput, RenameScreen, ThemePickerScreen, SessionItem, EasterEggHeader, MissingDirScreen, RetentionPickerScreen, KeysHelpScreen, DirConfirmScreen, DeleteConfirmScreen
 # --- Constants ---
 PREVIEW_BATCH_SIZE = 30  # Messages per lazy-load batch
 
@@ -438,6 +389,7 @@ class KiroHistory(App):
         )
 
         try:
+            seen_names: set[str] = set()
             with tarfile.open(out_path, "w:gz") as tar:
                 for session in sessions:
                     session_id = session.get("session_id", "") or "unknown"
@@ -469,7 +421,15 @@ class KiroHistory(App):
                     content = "\n".join(lines).encode("utf-8")
                     import io
                     buf = io.BytesIO(content)
-                    info = tarfile.TarInfo(name=f"{session_id}.txt")
+                    # Dedupe filename for sessions with missing ID
+                    base_name = f"{session_id}.txt"
+                    final_name = base_name
+                    counter = 1
+                    while final_name in seen_names:
+                        final_name = f"{session_id}_{counter}.txt"
+                        counter += 1
+                    seen_names.add(final_name)
+                    info = tarfile.TarInfo(name=final_name)
                     info.size = len(content)
                     tar.addfile(info, buf)
 
@@ -1202,7 +1162,7 @@ class KiroHistory(App):
 
     def _calc_span_days(self, sessions: list) -> int:
         """Return the number of days between the oldest and newest session. 0 if unknown."""
-        from datetime import datetime as _dt
+        from datetime import datetime as _dt, timezone as _tz
         dates = []
         for s in sessions:
             for field in ("created_at", "updated_at"):
@@ -1212,7 +1172,7 @@ class KiroHistory(App):
                         dt = _dt.fromisoformat(val.replace("Z", "+00:00"))
                         # Normalize to naive UTC so aware/naive never mix
                         if dt.tzinfo is not None:
-                            dt = dt.replace(tzinfo=None)
+                            dt = dt.astimezone(_tz.utc).replace(tzinfo=None)
                         dates.append(dt)
                     except ValueError:
                         pass
@@ -1359,7 +1319,7 @@ class KiroHistory(App):
             return
 
         title_raw = self.selected_session.get("title") or "(untitled)"
-        title_short = title_raw[:40]
+        title_short = title_raw[:40].replace("[", "\\[")
         # Default = selected session's original directory
         default_dir = self.selected_session.get("cwd") or os.getcwd()
 
@@ -1429,7 +1389,7 @@ class KiroHistory(App):
 
         session_id = session.get("session_id", "unknown")
         title = (session.get("title") or "untitled")[:30]
-        safe_title = "".join(c if c.isalnum() or c in "- " else "_" for c in title).strip()
+        safe_title = "".join(c if c.isalnum() or c in "-" else "_" for c in title).strip("_")
         ts = _time.strftime("%Y%m%d_%H%M%S")
         filename = f"kiro-{ts}-{safe_title[:24]}.json.gz"
         out_path = os.path.join(os.getcwd(), filename)
@@ -1442,7 +1402,7 @@ class KiroHistory(App):
                 "cwd": session.get("cwd", ""),
                 "created_at": session.get("created_at", ""),
                 "updated_at": session.get("updated_at", ""),
-                "messages": [{"role": m["role"], "text": m["text"]} for m in msgs],
+                "messages": [{"role": m.get("role", ""), "text": m.get("text", "")} for m in msgs],
             }
             content = _json.dumps(export, ensure_ascii=False, indent=2).encode("utf-8")
             with _gzip.open(out_path, "wb", compresslevel=6) as f:
@@ -1487,8 +1447,11 @@ class KiroHistory(App):
                     _Path(jsonl_path).with_suffix(".json").unlink(missing_ok=True)
             elif source in ("sqlite_v1", "sqlite_v2"):
                 import subprocess as _sp
-                _sp.run(["kiro-cli", "chat", "--delete-session", session_id],
-                        capture_output=True, timeout=5)
+                result = _sp.run(["kiro-cli", "chat", "--delete-session", session_id],
+                                 capture_output=True, timeout=5)
+                if result.returncode != 0:
+                    err_msg = result.stderr.decode(errors="replace").strip() or "unknown error"
+                    raise RuntimeError(f"kiro-cli delete failed: {err_msg}")
             elif source == "archive":
                 archive_path = session.get("archive_path", "")
                 if archive_path:

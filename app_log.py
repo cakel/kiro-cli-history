@@ -215,40 +215,41 @@ def _write_log(level: str, event: str, **kwargs) -> None:
     """
     global _log_file
 
-    if _log_file is None:
-        if level != "ERROR":
-            return  # Non-error: skip if file not open
-        # ERROR: lazy-open file now (first error in non-debug mode)
-        try:
-            _rotate_logs()
-            _cleanup_old_logs()
-            log_path = _get_log_path()
-            _log_file = open(log_path, "a", encoding="utf-8", buffering=1)
-        except OSError:
-            return  # Can't open file — silently skip
-
     # Gate verbose levels behind debug mode; ERROR always passes
     if level != "ERROR" and not _logging_enabled:
         return
 
-    timestamp = _format_timestamp()
-    # For ERROR entries, auto-inject epoch_ms for easier programmatic correlation
-    if level == "ERROR":
-        import time as _time
-        kwargs = {"ts": int(_time.time() * 1000), **kwargs}
-    kwargs_str = _format_kwargs(kwargs) if kwargs else ""
-    
-    if kwargs_str:
-        line = f"{timestamp} [{level}] {event} {kwargs_str}\n"
-    else:
-        line = f"{timestamp} [{level}] {event}\n"
-    
-    try:
-        with _log_lock:
+    with _log_lock:
+        # Double-checked locking for lazy file open
+        if _log_file is None:
+            if level != "ERROR":
+                return  # Non-error: skip if file not open
+            # ERROR: lazy-open file now (first error in non-debug mode)
+            try:
+                _rotate_logs()
+                _cleanup_old_logs()
+                log_path = _get_log_path()
+                _log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+            except OSError:
+                return  # Can't open file — silently skip
+
+        timestamp = _format_timestamp()
+        # For ERROR entries, auto-inject epoch_ms for easier programmatic correlation
+        if level == "ERROR":
+            import time as _time
+            kwargs = {"ts": int(_time.time() * 1000), **kwargs}
+        kwargs_str = _format_kwargs(kwargs) if kwargs else ""
+        
+        if kwargs_str:
+            line = f"{timestamp} [{level}] {event} {kwargs_str}\n"
+        else:
+            line = f"{timestamp} [{level}] {event}\n"
+        
+        try:
             _log_file.write(line)
             _log_file.flush()
-    except OSError:
-        pass
+        except OSError:
+            pass  # Swallow write errors (disk full, etc.)
 
 
 # ---------------------------------------------------------------------------

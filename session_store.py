@@ -168,7 +168,9 @@ def sync_sqlite_to_archive(sqlite_sessions: list, retention_days: int = 90) -> N
         except OSError:
             pass
 
-    # Compress .json files older than retention_days
+    # Compress .json files older than retention_days (0 = unlimited, skip compression)
+    if not retention_days:
+        return
     cutoff = datetime.now() - timedelta(days=retention_days)
     for json_path in list(archive_dir.glob("*.json")):
         try:
@@ -538,7 +540,7 @@ def _rg_available() -> bool:
 
 
 def _rg_find_in_dir(tokens: list[str], search_dir: Path,
-                    glob: str = "*.jsonl", compressed: bool = False) -> set[str]:
+                    glob: str = "*.jsonl", compressed: bool = False) -> "set[str] | None":
     """Return set of file paths where ALL tokens match (rg per-token + intersect).
 
     Args:
@@ -546,12 +548,16 @@ def _rg_find_in_dir(tokens: list[str], search_dir: Path,
         search_dir:  Directory to search.
         glob:        File glob filter (e.g. '*.jsonl', '*.json').
         compressed:  Pass -z to rg for .gz files.
+
+    Returns:
+        set of matching file paths, empty set if rg ran but found nothing,
+        or None if rg encountered an error (caller should fall back to Python).
     """
     if not tokens or not search_dir.exists():
         return set()
 
     rg = _rg_path()
-    matching: set[str] | None = None
+    matching: "set[str] | None" = None
     for token in tokens:
         cmd = [rg, "--files-with-matches", "--fixed-strings", "--ignore-case",
                f"--glob={glob}"]
@@ -561,14 +567,14 @@ def _rg_find_in_dir(tokens: list[str], search_dir: Path,
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             if result.returncode not in (0, 1):  # 0=match, 1=no match, others=error
-                return set()
+                return None  # rg error — let caller fall back to Python
             found = set(result.stdout.splitlines())
             matching = found if matching is None else matching & found
             if not matching:
                 break
         except (subprocess.TimeoutExpired, OSError):
-            return set()
-    return matching or set()
+            return None  # rg unavailable/timed out — let caller fall back to Python
+    return matching if matching is not None else set()
 
 
 # ---------------------------------------------------------------------------

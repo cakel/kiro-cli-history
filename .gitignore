@@ -24,3 +24,6 @@ kiro-sessions-*.tar.gz
 # Log files
 *.log
 
+
+# Archive directory (runtime generated)
+archive/
