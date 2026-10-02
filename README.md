@@ -49,6 +49,7 @@ Installs to `C:\ProgramData\kiro-cli-history` and adds it to your User PATH.
 
 - Python 3.10+
 - [textual](https://github.com/Textualize/textual) (installed automatically)
+- [ripgrep](https://github.com/BurntSushi/ripgrep) (bundled, installed automatically)
 
 ## Quick start
 
