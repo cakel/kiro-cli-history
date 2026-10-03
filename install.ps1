@@ -1,10 +1,10 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   kiro-cli-history installer (Windows).
 .DESCRIPTION
   Installs kiro_history.py under C:\ProgramData\kiro-cli-history,
-  creates a virtual environment (prefers uv, falls back to venv),
+  creates a virtual environment using uv (auto-installed if missing),
   generates a launcher .bat, and registers the bin directory in the
   User PATH.
   No admin rights required (standard users have write access to C:\ProgramData).
@@ -52,7 +52,7 @@ Write-Info "Installing to $installDir ..."
 if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }
 if (-not (Test-Path $binDir))     { New-Item -ItemType Directory -Path $binDir     -Force | Out-Null }
 
-# -- 3. Create virtual environment (prefer uv, fallback to venv) --
+# -- 3. Create virtual environment with uv (auto-installed if missing) --
 # Remove existing venv first to avoid lock conflicts on reinstall
 if (Test-Path $venvDir) {
     Write-Info "Removing existing virtual environment..."
@@ -74,22 +74,28 @@ if (Test-Path $venvDir) {
     }
 }
 
-if (Get-Command uv -ErrorAction SilentlyContinue) {
-    Write-Info "Using uv (fast mode)..."
-    & uv venv $venvDir
-    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to create venv with uv" }
-    & uv pip install textual --python "$venvDir\Scripts\python.exe"
-    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to install textual with uv" }
-    Write-OK "Virtual environment created with uv"
-} else {
-    Write-Info "Using standard venv..."
-    & $pyCmd -m venv $venvDir
-    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to create venv" }
-    & "$venvDir\Scripts\pip.exe" install --upgrade pip --quiet
-    & "$venvDir\Scripts\pip.exe" install textual --quiet
-    if ($LASTEXITCODE -ne 0) { Write-Err "Failed to install textual" }
-    Write-OK "Virtual environment created with venv"
+# -- 3b. Ensure uv is available - install via pip if missing --
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Info "uv not found - installing uv via pip..."
+    & $pyCmd -m pip install --quiet uv
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "Failed to install uv. Install manually: pip install uv"
+    }
+    # Reload PATH so newly installed uv script is found
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("Path", "User")
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+        Write-Err "uv installed but not found in PATH. Open a new terminal and retry."
+    }
+    Write-OK "uv installed successfully."
 }
+
+Write-Info "Using uv..."
+& uv venv $venvDir
+if ($LASTEXITCODE -ne 0) { Write-Err "Failed to create venv with uv" }
+& uv pip install textual --python "$venvDir\Scripts\python.exe"
+if ($LASTEXITCODE -ne 0) { Write-Err "Failed to install textual with uv" }
+Write-OK "Virtual environment created with uv"
 
 # -- 4. Copy main scripts and inject git hash --
 $srcScript = Join-Path $SCRIPT_DIR "kiro_history.py"
@@ -122,7 +128,7 @@ if (-not (Test-Path $srcLog)) {
 Copy-Item -LiteralPath $srcLog -Destination (Join-Path $installDir "app_log.py") -Force
 Write-OK "Copied app_log.py -> $installDir"
 
-# Copy _version.py (version constants — single source of truth)
+# Copy _version.py (version constants - single source of truth)
 $srcVersion = Join-Path $SCRIPT_DIR "_version.py"
 if (-not (Test-Path $srcVersion)) {
     Write-Err "_version.py not found in $SCRIPT_DIR"
@@ -169,7 +175,7 @@ if (-not (Test-Path $rgExe)) {
         Copy-Item -LiteralPath $bundledRg -Destination $rgExe -Force
         Write-OK "ripgrep installed: $rgExe"
     } else {
-        Write-Warn "bin\windows-x64\rg.exe not found in repo — search will use Python fallback."
+        Write-Warn "bin\windows-x64\rg.exe not found in repo - search will use Python fallback."
     }
 } else {
     Write-OK "ripgrep already present: $rgExe"

@@ -41,6 +41,7 @@ _log_file = None
 _app_version = "unknown"
 _log_lock = threading.Lock()
 _logging_enabled = False  # True only when debug=True was passed to init_logging
+_initialized = False      # True once init_logging has been called (any mode)
 
 
 # ---------------------------------------------------------------------------
@@ -150,11 +151,13 @@ def init_logging(debug: bool = False) -> None:
     
     Safe to call multiple times — subsequent calls are no-ops.
     """
-    global _log_file, _app_version, _logging_enabled
+    global _log_file, _app_version, _logging_enabled, _initialized
 
-    # Already initialized — skip
-    if _log_file is not None or _logging_enabled:
+    # Already initialized — skip (use _initialized flag, not _log_file,
+    # to avoid the race where lazy-ERROR opens _log_file before debug init runs)
+    if _initialized:
         return
+    _initialized = True
 
     _app_version = _get_app_version()
     _logging_enabled = debug  # True only when debug mode requested
@@ -174,7 +177,7 @@ def init_logging(debug: bool = False) -> None:
 
 def close_logging() -> None:
     """Close log file. Optional — called at app exit."""
-    global _log_file, _logging_enabled
+    global _log_file, _logging_enabled, _initialized
     if _log_file:
         try:
             _log_file.close()
@@ -182,6 +185,7 @@ def close_logging() -> None:
             pass
         _log_file = None
     _logging_enabled = False
+    _initialized = False
 
 
 # ---------------------------------------------------------------------------

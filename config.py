@@ -44,7 +44,8 @@ def _get_default_data_dir() -> Path:
     return Path.home() / ".local" / "share" / "kiro-cli-history" / "data"
 
 # Fixed data directory — override with KIRO_HISTORY_DATA_DIR env var if needed
-_DATA_DIR = Path(os.environ.get("KIRO_HISTORY_DATA_DIR", "")) or _get_default_data_dir()
+_env_data_dir = os.environ.get("KIRO_HISTORY_DATA_DIR", "").strip()
+_DATA_DIR = Path(_env_data_dir) if _env_data_dir else _get_default_data_dir()
 
 
 def get_install_dir() -> Path:

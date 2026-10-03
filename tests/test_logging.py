@@ -32,6 +32,8 @@ def test_logging_creates_a_file_only_when_debug_is_enabled(tmp_path, monkeypatch
     app_log.init_logging()
     assert not (tmp_path / app_log.LOG_FILENAME).exists()
 
+    # close_logging resets _initialized, so a second call with debug=True works
+    app_log.close_logging()
     app_log.init_logging(debug=True)
     app_log.log_perf("test_event")
     app_log.close_logging()

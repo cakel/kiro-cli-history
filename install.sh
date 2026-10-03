@@ -50,7 +50,7 @@ fi
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$BIN_DIR"
 
-# Create virtual environment and install dependencies
+# Create virtual environment with uv (auto-installed via pip if missing)
 # Remove existing venv first to avoid stale state on reinstall
 if [ -d "$VENV_DIR" ]; then
     echo "Removing existing virtual environment..."
@@ -61,21 +61,22 @@ if [ -d "$VENV_DIR" ]; then
     rm -rf "$VENV_DIR"
 fi
 
-# Prefer uv if available, fallback to standard venv
-if command -v uv &>/dev/null; then
-    echo "Using uv (fast mode)..."
-    uv venv "$VENV_DIR" || { echo "ERROR: uv venv creation failed"; exit 1; }
-    # Use venv python directly - avoids --python flag version compatibility issues
-    "$VENV_DIR/bin/python" -m pip install textual --quiet || {
-        # Fall back to uv pip if pip not available in venv
-        uv pip install --python "$VENV_DIR" textual || { echo "ERROR: textual install failed"; exit 1; }
-    }
-else
-    echo "Using standard venv..."
-    python3 -m venv "$VENV_DIR" || { echo "ERROR: python3 venv creation failed"; exit 1; }
-    "$VENV_DIR/bin/pip" install --upgrade pip --quiet || { echo "ERROR: pip upgrade failed"; exit 1; }
-    "$VENV_DIR/bin/pip" install textual --quiet || { echo "ERROR: textual install failed"; exit 1; }
+# Ensure uv is available — install it if missing
+if ! command -v uv &>/dev/null; then
+    echo "uv not found — installing uv via pip..."
+    python3 -m pip install --quiet uv || { echo "ERROR: Failed to install uv. Install manually: pip install uv"; exit 1; }
+    # Reload PATH so the newly installed uv is found
+    export PATH="$HOME/.local/bin:$PATH"
+    if ! command -v uv &>/dev/null; then
+        echo "ERROR: uv installed but not found in PATH. Try: export PATH=\"\$HOME/.local/bin:\$PATH\""
+        exit 1
+    fi
+    echo "uv installed successfully."
 fi
+
+echo "Using uv..."
+uv venv "$VENV_DIR" || { echo "ERROR: uv venv creation failed"; exit 1; }
+uv pip install --python "$VENV_DIR/bin/python" textual || { echo "ERROR: textual install failed"; exit 1; }
 
 # Copy files
 echo "Installing to $INSTALL_DIR..."

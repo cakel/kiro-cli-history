@@ -63,6 +63,7 @@ Run from anywhere. Press `/` to search sessions, `Ctrl+F` to search within a con
 
 - [Usage and keyboard shortcuts](docs/usage.md)
 - [How it works](docs/how-it-works.md)
+- [Debug logging](docs/debug-logging.md)
 - [Changelog vs upstream](docs/changelog.md)
 
 ## Uninstall

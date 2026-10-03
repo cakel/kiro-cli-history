@@ -12,6 +12,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time as _time
 from datetime import datetime
 from pathlib import Path
 
@@ -268,6 +269,9 @@ class KiroHistory(App):
         self._preview_search_matches: list[int] = []  # Indices into _preview_messages
         self._preview_search_current = -1   # Current match index (-1 = no selection)
         self._preview_msg_line_offsets: dict[int, int] = {}  # msg_index → RichLog line number
+        # ESC multi-press state: 1=Clear, 2=notify popup, 3=quit
+        self._esc_count: int = 0
+        self._esc_notify_timer = None  # asyncio TimerHandle for resetting _esc_count
         # Timing for perf logging
         self._start_time = None
 
@@ -371,7 +375,6 @@ class KiroHistory(App):
         import gzip as _gzip
         import json as _json
         import tarfile
-        import time as _time
         from pathlib import Path as _Path
 
         export_dir = _Path(os.getcwd())
@@ -497,6 +500,7 @@ class KiroHistory(App):
         self._show_untitled = _CONFIG_DEFAULTS["show_untitled"]
         self._theme = _CONFIG_DEFAULTS["theme"]
         self._debug = _CONFIG_DEFAULTS["debug"]
+        self._retention_days = _CONFIG_DEFAULTS["retention_days"]
         if self._theme in self.available_themes:
             self.theme = self._theme
         # Refresh session list (applies new single-turn / untitled filters)
@@ -513,6 +517,7 @@ class KiroHistory(App):
             "show_untitled": self._show_untitled,
             "theme": self._theme,
             "debug": self._debug,
+            "retention_days": self._retention_days,
         })
         trust = "ON" if self._trust_all_tools else "OFF"
         single = "shown" if self._show_single_turn else "hidden"
@@ -989,7 +994,18 @@ class KiroHistory(App):
         
         # Log search performance (only for non-stale results)
         cache_status = "warm" if any(s.get("_search_text") is not None for s in base[:10]) else "cold"
-        log_perf("search", query_len=len(query), results=len(results), time=search_time, cache=cache_status)
+        # Source distribution for format-level perf analysis
+        _src_counts: dict[str, int] = {}
+        for _s in base:
+            _src = _s.get("source", "unknown")
+            _src_counts[_src] = _src_counts.get(_src, 0) + 1
+        log_perf("search",
+                 query_len=len(query),
+                 results=len(results),
+                 elapsed_ms=round(search_time * 1000, 1),
+                 cache=cache_status,
+                 total=len(base),
+                 **{f"src_{k}": v for k, v in _src_counts.items()})
         
         # Update filtered_sessions on main thread to avoid race condition
         def update_results():
@@ -1018,6 +1034,7 @@ class KiroHistory(App):
         session = event.item.session
         self.selected_session = session
         self._preview_loading_session_id = session.get("session_id")
+        log_perf("session_selected", session_id=session.get("session_id", ""), title=session.get("title", "")[:40])
         # Always clear all preview state when switching sessions
         self._preview_messages = []
         self._preview_all_loaded = False
@@ -1074,8 +1091,18 @@ class KiroHistory(App):
         self.call_from_thread(preview.write, Text(""))
 
         # Lazy loading: extract only first batch initially
+        _t0 = _time.perf_counter()
         messages = extract_messages(session, limit=self._preview_batch_size)
+        _elapsed_ms = round((_time.perf_counter() - _t0) * 1000, 1)
         all_loaded = len(messages) < self._preview_batch_size
+        log_perf("preview_load",
+                 session_id=session_id,
+                 source=session.get("source", ""),
+                 msg_count_meta=session.get("msg_count", 0),
+                 batch_size=self._preview_batch_size,
+                 loaded=len(messages),
+                 all_loaded=all_loaded,
+                 elapsed_ms=_elapsed_ms)
 
         # Final guard before updating shared state
         if self._preview_loading_session_id != session_id:
@@ -1343,8 +1370,10 @@ class KiroHistory(App):
         """Toggle the keyboard shortcuts help panel."""
         if isinstance(self.screen, KeysHelpScreen):
             self.pop_screen()
+            log_perf("keys_help", action="close")
         else:
             self.push_screen(KeysHelpScreen())
+            log_perf("keys_help", action="open")
 
     def action_focus_search(self) -> None:
         self.query_one("#search-input", Input).focus()
@@ -1352,22 +1381,83 @@ class KiroHistory(App):
     def action_focus_path(self) -> None:
         self.query_one("#path-input", Input).focus()
 
+    def _reset_esc_count(self) -> None:
+        """Reset ESC press counter (called by timer after inactivity)."""
+        self._esc_count = 0
+        self._esc_notify_timer = None
+
+    def _is_keys_help_screen(self) -> bool:
+        """Return True if the current screen is KeysHelpScreen. Extracted for testability."""
+        try:
+            return isinstance(self.screen, KeysHelpScreen)
+        except Exception:
+            return False
+
     def action_clear_or_quit(self) -> None:
+        # Close keys help panel first — takes priority over everything else
+        if self._is_keys_help_screen():
+            self.pop_screen()
+            self._esc_count = 0
+            if self._esc_notify_timer is not None:
+                self._esc_notify_timer.stop()
+                self._esc_notify_timer = None
+            log_perf("esc_key", action="close_keys_help")
+            return
         # Close preview search if active
         if self._preview_search_active:
             self._close_preview_search()
+            self._esc_count = 0
+            if self._esc_notify_timer is not None:
+                self._esc_notify_timer.stop()
+                self._esc_notify_timer = None
+            log_perf("esc_key", action="close_preview_search")
             return
-        # Close keys help panel if open
-        if isinstance(self.screen, KeysHelpScreen):
-            self.pop_screen()
-            return
-        # Clear BOTH inputs at once
+
         search = self.query_one("#search-input", Input)
         path = self.query_one("#path-input", Input)
+
+        # If any input is filled, ESC 1st press = Clear (also resets counter)
         if search.value or path.value:
             search.value = ""
             path.value = ""
             search.focus()
+            self._esc_count = 0
+            if self._esc_notify_timer is not None:
+                self._esc_notify_timer.stop()
+                self._esc_notify_timer = None
+            log_perf("esc_key", action="clear_inputs")
+            return
+
+        # Nothing to clear — advance multi-press counter
+        self._esc_count += 1
+
+        # Reset any existing timer
+        if self._esc_notify_timer is not None:
+            self._esc_notify_timer.stop()
+            self._esc_notify_timer = None
+
+        if self._esc_count == 1:
+            log_perf("esc_key", action="idle_1st")
+            # 1st ESC on empty state: start timer to reset if no follow-up
+            self._esc_notify_timer = self.set_timer(
+                2.0, self._reset_esc_count
+            )
+        elif self._esc_count == 2:
+            log_perf("esc_key", action="idle_2nd_notify")
+            # 2nd ESC: show hint popup, keep waiting
+            self.notify(
+                "Press ESC again to exit program",
+                severity="warning",
+                timeout=2.0,
+            )
+            self._esc_notify_timer = self.set_timer(
+                2.0, self._reset_esc_count
+            )
+        else:
+            log_perf("esc_key", action="quit")
+            # 3rd ESC: quit
+            self._esc_count = 0
+            self.exit()
 
     def action_quit_app(self) -> None:
         """Quit the application."""
@@ -1384,7 +1474,6 @@ class KiroHistory(App):
     def _export_single_session_worker(self, session: dict) -> None:
         import gzip as _gzip
         import json as _json
-        import time as _time
         from session_store import extract_messages
 
         session_id = session.get("session_id", "unknown")
@@ -1427,6 +1516,7 @@ class KiroHistory(App):
             self.notify("No session selected.", severity="warning", timeout=3)
             return
         title = (self.selected_session.get("title") or "(untitled)")[:60]
+        log_perf("delete_session_confirm", session_id=self.selected_session.get("session_id", ""), title=title)
 
         def on_confirmed(confirmed: bool) -> None:
             if confirmed:
@@ -1511,7 +1601,9 @@ class KiroHistory(App):
         skip = len(self._preview_messages)
 
         # Use offset parameter to skip already-loaded messages
+        _t0 = _time.perf_counter()
         new_msgs = extract_messages(session, limit=self._preview_batch_size, offset=skip)
+        _elapsed_ms = round((_time.perf_counter() - _t0) * 1000, 1)
 
         # Recheck guard after file I/O
         if self._preview_loading_session_id != session_id:
@@ -1522,10 +1614,24 @@ class KiroHistory(App):
                 self._preview_all_loaded = True
             self.call_from_thread(mark_all_loaded)
             self.call_from_thread(self.notify, "All messages loaded", severity="information")
+            log_perf("load_more",
+                     session_id=session_id,
+                     source=session.get("source", ""),
+                     offset=skip,
+                     loaded=0,
+                     all_loaded=True,
+                     elapsed_ms=_elapsed_ms)
             return
 
         # Check if this is the last batch
         is_last_batch = len(new_msgs) < self._preview_batch_size
+        log_perf("load_more",
+                 session_id=session_id,
+                 source=session.get("source", ""),
+                 offset=skip,
+                 loaded=len(new_msgs),
+                 all_loaded=is_last_batch,
+                 elapsed_ms=_elapsed_ms)
         
         # Update shared state on main thread
         def update_state():
@@ -1564,6 +1670,7 @@ class KiroHistory(App):
             self._preview_search_active = True
             ps.display = True
             self.query_one("#preview-search-info", Static).display = True
+            log_perf("preview_search_open")
             # Pre-fill with the current session-list search query
             if not ps.value:
                 left_query = self.query_one("#search-input", Input).value
@@ -1670,13 +1777,21 @@ class KiroHistory(App):
     def _execute_preview_search(self, query: str) -> None:
         """Actually perform the search (called after all messages are loaded)."""
         q = self._normalize_for_search(query)
+        _t0 = _time.perf_counter()
         matches = [
             i for i, msg in enumerate(self._preview_messages)
             if q in self._normalize_for_search(msg.get("text", ""))
         ]
+        _elapsed_ms = round((_time.perf_counter() - _t0) * 1000, 1)
         self._preview_search_executed = query  # Mark this query as searched
         self._preview_search_matches = matches
         self._preview_search_current = 0 if matches else -1
+        log_perf("preview_search",
+                 query_len=len(query),
+                 matches=len(matches),
+                 total_messages=len(self._preview_messages),
+                 all_loaded=self._preview_all_loaded,
+                 elapsed_ms=_elapsed_ms)
         self._rerender_preview(highlight_query=query)
         self._update_search_info(query, len(matches),
                                   self._preview_search_current)
@@ -1703,7 +1818,9 @@ class KiroHistory(App):
                 return
             
             if not new_msgs:
-                self._preview_all_loaded = True
+                def mark_done():
+                    self._preview_all_loaded = True
+                self.call_from_thread(mark_done)
                 break
             
             is_last = len(new_msgs) < self._preview_batch_size
@@ -1977,8 +2094,10 @@ class KiroHistory(App):
                 self.call_from_thread(self.notify, "Clipboard copy failed", severity="error")
                 return
             self.call_from_thread(self.notify, f"Copied {len(messages)} messages to clipboard")
+            log_perf("copy_conversation", session_id=session.get("session_id", ""), messages=len(messages))
         except FileNotFoundError:
             self.call_from_thread(self.notify, "Clipboard tool not found", severity="error")
+            log_error("copy_conversation_failed", reason="clipboard_tool_not_found")
 
 
 # --- Entry Point ---
