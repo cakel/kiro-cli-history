@@ -239,6 +239,10 @@ def _extract_messages_from_history(history, limit=None, offset=0):
     messages = []
     skipped = 0
     for entry in history:
+        # Some SQLite v2 sessions store history as a list of lists rather than
+        # a list of dicts. Skip non-dict entries instead of crashing.
+        if not isinstance(entry, dict):
+            continue
         user = entry.get("user", {})
         content = user.get("content", {})
         if "Prompt" in content:
@@ -290,6 +294,8 @@ def _extract_messages_from_history(history, limit=None, offset=0):
 
 def _get_first_prompt_from_history(history):
     for entry in history:
+        if not isinstance(entry, dict):
+            continue
         user = entry.get("user", {})
         content = user.get("content", {})
         if "Prompt" in content:
@@ -303,6 +309,8 @@ def _is_sqlite_subagent(history: list) -> bool:
     prompt_turns = 0
     tool_result_turns = 0
     for entry in history:
+        if not isinstance(entry, dict):
+            continue
         content = entry.get("user", {}).get("content", {})
         if "Prompt" in content:
             prompt_turns += 1
@@ -376,7 +384,7 @@ def _load_sqlite_sessions() -> list:
                         "is_subagent": False,
                         "parent_session_id": None,
                     })
-                except (json.JSONDecodeError, KeyError, ValueError):
+                except (json.JSONDecodeError, KeyError, ValueError, TypeError):
                     pass
         except sqlite3.OperationalError:
             pass
@@ -676,6 +684,8 @@ def start_cache_prebuild(sessions: list, *, on_progress=None) -> threading.Threa
 def _search_history(query: str, history: list) -> bool:
     """Return True if query matches any text in a SQLite/archive history list."""
     for entry in history:
+        if not isinstance(entry, dict):
+            continue
         user = entry.get("user", {})
         content = user.get("content", {})
         if "Prompt" in content and _fuzzy_match(query, content["Prompt"].get("prompt", "")):
