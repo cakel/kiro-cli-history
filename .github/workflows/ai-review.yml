@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   ai-review:
-    uses: cakel/llm-pr-reviewer/.github/workflows/reusable-ai-review.yml@adb5006a5ebb19c77c1aca11741ea2023b0816ec  # main
+    uses: cakel/llm-pr-reviewer/.github/workflows/reusable-ai-review.yml@6b408b4bda969e78bf3ce90cf7c4a44ccf312d4f  # main
     with:
       runner: '["ubuntu-latest"]'
       review-runner: '["self-hosted", "llm-reviewer"]'
