@@ -1,0 +1,19 @@
+name: AI PR Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+jobs:
+  ai-review:
+    uses: cakel/llm-pr-reviewer/.github/workflows/reusable-ai-review.yml@adb5006a5ebb19c77c1aca11741ea2023b0816ec  # main
+    with:
+      runner: '["ubuntu-latest"]'
+      review-runner: '["self-hosted", "llm-reviewer"]'
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}
