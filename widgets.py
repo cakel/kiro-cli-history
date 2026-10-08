@@ -136,12 +136,14 @@ class SessionItem(ListItem):
         self.session = session
 
     def compose(self):
-        raw_ts = (self.session.get("updated_at") or "")[:10]
+        raw_ts = (self.session.get("updated_at") or "")
         try:
-            dt = datetime.strptime(raw_ts, "%Y-%m-%d")
-            ts = f"{dt.day} {dt.strftime('%b %Y')}"
-        except (ValueError, TypeError):
-            ts = raw_ts
+            dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                dt = dt.astimezone().replace(tzinfo=None)
+            ts = dt.strftime("%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError, OverflowError, OSError):
+            ts = raw_ts[:10] if raw_ts else ""
         title = (self.session.get("title") or "(untitled)")[:60]
         title = title.replace("[", "\\[").replace("]", "\\]")
         cwd = os.path.basename(self.session.get("cwd") or "")
@@ -397,10 +399,14 @@ class KeysHelpScreen(ModalScreen):
         Binding("question_mark", "dismiss", "Close"),
     ]
 
+    # Fallback rows used when no rows are passed to __init__.
+    # NOTE: kiro_history.KiroHistory._HELP_ROWS is the authoritative source.
+    #       Update that list; this fallback is only used when KeysHelpScreen
+    #       is constructed directly (e.g. tests, standalone use).
     SHORTCUT_ROWS = [
-        ("Ctrl+R",       "Resume session"),
+        ("Ctrl+R",       "Resume+ChangeDir"),
         ("Ctrl+N",       "New session (current dir)"),
-        ("Alt+N",        "Resume selected in new dir"),
+        ("Alt+N",        "Resume+SelectDir"),
         ("Ctrl+Y",       "Copy conversation"),
         ("Ctrl+X",       "Export session to .json.gz"),
         ("Ctrl+Del",     "Delete session"),
@@ -423,10 +429,15 @@ class KeysHelpScreen(ModalScreen):
         ("Esc",          "Clear search / path"),
     ]
 
+    def __init__(self, rows: list | None = None) -> None:
+        super().__init__()
+        # Use caller-supplied rows if provided; fall back to class default.
+        self._rows = rows if rows is not None else self.SHORTCUT_ROWS
+
     def compose(self):
         with Vertical(id="keys-panel"):
             yield Static("⌨  Keyboard Shortcuts", id="keys-title", markup=True)
-            for key, desc in self.SHORTCUT_ROWS:
+            for key, desc in self._rows:
                 if not key and not desc:
                     yield Static("")
                 else:

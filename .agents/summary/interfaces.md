@@ -137,9 +137,9 @@ Flushes and closes the log file. Call on app exit.
 |-----|--------|-------------|
 | `/` | `focus_search` | Focus the search input |
 | `p` | `focus_path` | Focus the path filter input |
-| `Ctrl+R` | `resume` | Resume selected session in Kiro CLI |
+| `Ctrl+R` | `resume` | Resume selected session in its original directory (Resume+ChangeDir) |
 | `Ctrl+N` | `new_session` | Start a new Kiro CLI session |
-| `Alt+N` | `new_session_history` | Resume session, choose a different directory |
+| `Alt+N` | `new_session_history` | Resume session in a chosen directory — defaults to cwd (Resume+SelectDir) |
 | `Ctrl+F` | `open_preview_search` | Open in-preview search bar |
 | `Ctrl+Y` | `copy_conversation` | Copy full conversation to clipboard |
 | `Ctrl+X` | `export_session` | Export session as markdown |
@@ -178,10 +178,11 @@ All modal screens return a value via `self.dismiss(value)`:
 ### Resuming a session
 
 ```python
-subprocess.run(
-    ["kiro", "chat", "--resume", session_id, "--trust-all-tools"],
-    cwd=session_cwd,
-)
+cmd = ["kiro-cli", "chat", "--resume-id", session_id]
+if trust_all_tools:
+    cmd.append("--trust-all-tools")
+# Windows: subprocess.run(cmd, cwd=cwd)
+# Unix:    os.execvp("kiro-cli", cmd)
 ```
 
 `--trust-all-tools` is added when `trust_all_tools` setting is `True`.

@@ -3,6 +3,91 @@
 Upstream: https://github.com/prabhugr/kiro-cli-history  
 This fork: https://github.com/cakel/kiro-cli-history
 
+## v0.1.0-cakel.10 (2026-10-08)
+
+### UX changes
+
+**Keybinding label rename**
+- `Ctrl+R` label: "Resume" → "Resume+ChangeDir" — makes clear it resumes in the session's original directory
+- `Alt+N` label: "Resume+Dir" → "Resume+SelectDir" — makes clear you pick the directory
+
+**Alt+N default directory**
+- `DirConfirmScreen` now pre-fills with the **current working directory** (where `kiro-cli-history` is running), not the session's original `cwd`
+
+**Date format**
+- Session list timestamps changed from `7 Oct 2026` → `2026-10-06 20:10:00` (local time, `yyyy-mm-dd hh:mm:ss`)
+
+**`⌥ N` display**
+- Added space between `⌥` and `N` in the shortcut bar
+
+### Bug fixes
+
+| Bug | Fix |
+|-----|-----|
+| Search highlight invisible when ANSI theme active | `theme.accent` ANSI color names (e.g. `ansi_magenta`) are not valid in Rich style strings — fall back to `#ffa62b` for any non-hex accent |
+
+### Refactor
+
+**Keybinding label single source of truth**
+- `_L_RESUME`, `_L_NEW`, `_L_RESUME_DIR` class constants in `KiroHistory`
+- `_HELP_ROWS` list defined in `kiro_history.py` and passed to `KeysHelpScreen`
+- `KeysHelpScreen.__init__` accepts optional `rows` parameter (falls back to class `SHORTCUT_ROWS`)
+- `_shortcut_bar_text` changed from `@staticmethod` to `@classmethod` to reference constants via `cls`
+- Previously: three independent hardcoded strings (BINDINGS, shortcut bar, SHORTCUT_ROWS) required manual sync on every label change
+
+---
+
+## v0.1.0-cakel.9 (2026-10-03)
+
+### New features
+
+**ESC 3-press exit**
+- 1st Esc: idle (clears search/path inputs)
+- 2nd Esc: notification warning
+- 3rd Esc: quit
+
+**Debug logging enhancements**
+- Added `elapsed_ms`, source distribution to perf logs
+- `_initialized` flag fixes lazy-ERROR race condition
+
+### Bug fixes
+
+| Bug | Fix |
+|-----|-----|
+| `_reset_to_saved_defaults` missing `retention_days` | Added field |
+| `_load_all_then_scroll_end` thread-safety | Wrapped in `call_from_thread` |
+| `Path('')` bug in `KIRO_HISTORY_DATA_DIR` handling | Empty string guard |
+
+### Installer
+- Auto-installs `uv` via pip if missing; removed venv fallback
+
+### Tests
+- `test_config.py`, `test_applog_extended.py`, `test_esc_behavior.py` added
+
+---
+
+## v0.1.0-cakel.8 (2026-10-02)
+
+### Bug fixes (adversarial review of cakel.7)
+
+| Bug | Fix |
+|-----|-----|
+| `retention_days=0` caused immediate compression of all files | Added guard for `days == 0` (unlimited) |
+| `_rg_find_in_dir` error path returned `None` instead of empty set | Returns `set()` on error |
+| `KeysHelpScreen` docstring said "Left-side" | Corrected to "Right-side" |
+| `DirConfirmScreen` title markup not escaped | Fixed markup escape |
+| Export filename contained spaces | Replaced spaces with underscores |
+| `_write_log` lazy-open race condition | Double-checked locking |
+| `_calc_span_days` timezone-aware vs naive comparison | UTC conversion before strip |
+| `_do_delete_session` subprocess returncode unchecked | Added returncode check |
+| `_export_transcripts` duplicate filename collision | Added dedup handling |
+
+### Cleanup
+- Removed dead `NewSessionScreen` class (~130 lines)
+- Removed dead `_ko_to_qwerty` code (~50 lines)
+
+---
+
 ## v0.1.0-cakel.7 (2026-10-02)
 
 ### New features

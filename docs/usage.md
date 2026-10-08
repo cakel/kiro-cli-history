@@ -16,9 +16,9 @@ kiro-cli-history /path     # open with specific path pre-filtered
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+R` | Resume selected session in Kiro CLI |
+| `Ctrl+R` | Resume selected session (in its original directory) |
 | `Ctrl+N` | Start a new Kiro CLI session (current directory) |
-| `Alt+N` | Resume selected session in a different directory |
+| `Alt+N` | Resume selected session — choose a different start directory |
 | `Ctrl+Y` | Copy full conversation to clipboard |
 | `Ctrl+X` | Export selected session to `.json.gz` |
 | `Ctrl+Del` | Delete selected session (with confirmation) |
@@ -121,9 +121,9 @@ Starts `kiro-cli chat` immediately in the current working directory.
 
 1. Select a session in the list
 2. Press `Alt+N`
-3. `DirConfirmScreen` opens — pre-filled with the session's original directory
+3. `DirConfirmScreen` opens — pre-filled with the **current working directory** (where `kiro-cli-history` is running)
 4. Edit the path if needed, press `Enter` to confirm
-5. Runs `kiro-cli chat --resume-id <id>` from the new directory
+5. Runs `kiro-cli chat --resume-id <id>` from the chosen directory
 
 The directory is created automatically if it doesn't exist.
 

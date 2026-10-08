@@ -123,7 +123,7 @@ sequenceDiagram
 flowchart TD
     A["User presses Ctrl+R"]
     B{"session.cwd exists?"}
-    C["action_resume()\nsubprocess: kiro chat --resume <id> [--trust-all-tools]"]
+    C["action_resume()\nos.chdir(cwd)\nkiro-cli chat --resume-id &lt;id&gt; [--trust-all-tools]"]
     D["handle_missing_dir()\nOpen MissingDirScreen modal"]
     E{"User picks alt dir\nor cancel"}
     F["Resume with chosen dir as cwd"]

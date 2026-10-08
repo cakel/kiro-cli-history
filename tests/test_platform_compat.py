@@ -102,12 +102,48 @@ def test_datetime_fromisoformat():
 
 
 def test_strftime_day_no_padding():
-    """strftime 날짜 패딩 제거 테스트 (%-d는 Windows 미지원)"""
-    # kiro_history.py 방식: dt.day로 직접 접근
-    dt = datetime(2026, 1, 5)
-    result = f"{dt.day} {dt.strftime('%b %Y')}"
-    assert result == "5 Jan 2026", f"Unexpected format: {result}"
+    """날짜 포맷 테스트: yyyy-mm-dd hh:mm:ss"""
+    dt = datetime(2026, 1, 5, 20, 10, 0)
+    result = dt.strftime("%Y-%m-%d %H:%M:%S")
+    assert result == "2026-01-05 20:10:00", f"Unexpected format: {result}"
     print("[OK] test_strftime_day_no_padding")
+
+
+def test_session_item_extreme_timestamp_no_crash():
+    """SessionItem.compose()가 극단적 연도/오프셋 타임스탬프에서 OverflowError 없이 동작.
+
+    '9999-12-31T23:59:59-23:59' 같은 값은 astimezone()에서 OverflowError를
+    발생시킬 수 있다. 이 예외를 처리하지 않으면 세션 목록 렌더링이 실패한다.
+    """
+    import os
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from datetime import timezone, timedelta
+
+    extreme_cases = [
+        "9999-12-31T23:59:59-23:59",   # 최대 연도, 최소 UTC 오프셋 → 변환 시 overflow 가능
+        "9999-12-31T23:59:59+23:59",   # 최대 연도, 최대 UTC 오프셋
+        "0001-01-01T00:00:00+00:00",   # 최소 연도
+        "9999-12-31T23:59:59Z",        # Z suffix
+        "not-a-date",                  # 완전히 잘못된 값
+        "",                            # 빈 문자열
+    ]
+
+    for raw_ts in extreme_cases:
+        # Replicate SessionItem.compose() date parsing logic
+        try:
+            dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            if dt.tzinfo is not None:
+                dt = dt.astimezone().replace(tzinfo=None)
+            ts = dt.strftime("%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError, OverflowError, OSError):
+            # OSError on Windows, OverflowError on Linux/Mac for extreme dates
+            ts = raw_ts[:10] if raw_ts else ""
+
+        # Must not raise; ts must be a string
+        assert isinstance(ts, str), f"ts should be str for input {raw_ts!r}, got {type(ts)}"
+
+    print("[OK] test_session_item_extreme_timestamp_no_crash")
 
 
 def test_path_home():

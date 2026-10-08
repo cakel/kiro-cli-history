@@ -9,7 +9,7 @@ Injected at install time by install.sh / install.ps1:
 """
 
 # Fallback version when git is not available or not injected at install
-VERSION = "v0.1.0-cakel.9"
+VERSION = "v0.1.0-cakel.10"
 
 # Injected at install time — empty string means "not installed, use git/fallback"
 _BUILT_VERSION = ""
