@@ -142,7 +142,7 @@ class SessionItem(ListItem):
             if dt.tzinfo is not None:
                 dt = dt.astimezone().replace(tzinfo=None)
             ts = dt.strftime("%Y-%m-%d %H:%M:%S")
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError, OSError):
             ts = raw_ts[:10] if raw_ts else ""
         title = (self.session.get("title") or "(untitled)")[:60]
         title = title.replace("[", "\\[").replace("]", "\\]")
