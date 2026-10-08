@@ -218,10 +218,45 @@ class KiroHistory(App):
     }
     """
 
+    # --- Keybinding label constants — single source of truth ---
+    # These flow into BINDINGS (footer), _shortcut_bar_text (bottom bar),
+    # and _HELP_ROWS (? panel). Change here; all three stay in sync.
+    _L_RESUME     = "Resume+ChangeDir"
+    _L_NEW        = "New"
+    _L_RESUME_DIR = "Resume+SelectDir"
+
+    # Rows passed to KeysHelpScreen — defined here so kiro_history.py is the
+    # single source for all keybinding descriptions.
+    _HELP_ROWS = [
+        ("Ctrl+R",   _L_RESUME),
+        ("Ctrl+N",   "New session (current dir)"),
+        ("Alt+N",    _L_RESUME_DIR),
+        ("Ctrl+Y",   "Copy conversation"),
+        ("Ctrl+X",   "Export session to .json.gz"),
+        ("Ctrl+Del", "Delete session"),
+        ("Ctrl+F",   "Search in preview"),
+        ("Ctrl+P",   "Command palette"),
+        ("Ctrl+Q",   "Exit"),
+        ("",         ""),
+        ("/",        "Focus text search"),
+        ("p",        "Focus path filter"),
+        ("j",        "Session list down"),
+        ("k",        "Session list up"),
+        ("m",        "Preview page down"),
+        ("M",        "Preview page up"),
+        ("Enter",    "Focus preview"),
+        ("← / h",   "Focus session list"),
+        ("→ / l",   "Focus preview"),
+        ("",         ""),
+        ("F2",       "Rename session"),
+        ("?",        "Toggle this panel"),
+        ("Esc",      "Clear search / path"),
+    ]
+
     BINDINGS = [
-        Binding("ctrl+r", "resume", "Resume"),
-        Binding("ctrl+n", "new_session", "New"),
-        Binding("alt+n", "new_session_history", "Alt+N Resume+Dir"),
+        Binding("ctrl+r", "resume", _L_RESUME),
+        Binding("ctrl+n", "new_session", _L_NEW),
+        Binding("alt+n", "new_session_history", f"Alt+N {_L_RESUME_DIR}"),
         Binding("ctrl+y", "copy_conversation", "Copy", show=False),
         Binding("ctrl+x", "export_session", "Export", show=False),
         Binding("ctrl+delete", "delete_session", "Delete", show=False),
@@ -1163,13 +1198,13 @@ class KiroHistory(App):
 
     # --- Actions ---
 
-    @staticmethod
-    def _shortcut_bar_text() -> str:
+    @classmethod
+    def _shortcut_bar_text(cls) -> str:
         def k(key: str) -> str:
             return f"[bold yellow]{key}[/bold yellow]"
         return (
             f" {k('^Y')} Copy  {k('^X')} Export  {k('^Del')} Delete  "
-            f"{k('^R')} Resume  {k('^N')} New  {k('⌥N')} Resume+Dir  "
+            f"{k('^R')} {cls._L_RESUME}  {k('^N')} {cls._L_NEW}  {k('⌥ N')} {cls._L_RESUME_DIR}  "
             f"{k('m')} Page↓  {k('M')} Page↑  "
             f"{k('/')} Search  {k('p')} Path  "
             f"{k('?')} Help  {k('F2')} Rename  "
@@ -1347,8 +1382,8 @@ class KiroHistory(App):
 
         title_raw = self.selected_session.get("title") or "(untitled)"
         title_short = title_raw[:40].replace("[", "\\[")
-        # Default = selected session's original directory
-        default_dir = self.selected_session.get("cwd") or os.getcwd()
+        # Default = current working directory (where kiro-cli-history is running)
+        default_dir = os.getcwd()
 
         def on_dir_chosen(path: str | None) -> None:
             if not path:
@@ -1372,7 +1407,7 @@ class KiroHistory(App):
             self.pop_screen()
             log_perf("keys_help", action="close")
         else:
-            self.push_screen(KeysHelpScreen())
+            self.push_screen(KeysHelpScreen(self._HELP_ROWS))
             log_perf("keys_help", action="open")
 
     def action_focus_search(self) -> None:
@@ -1960,9 +1995,11 @@ class KiroHistory(App):
         q = highlight_query.lower() if highlight_query else ""
         match_indices = set(self._preview_search_matches)
 
-        # Get theme color for highlighting — accent is most visible
+        # Use accent color only when it's a hex value — ANSI color names (e.g.
+        # 'ansi_magenta') are not valid in Rich style strings and produce no bgcolor.
         theme = self.current_theme
-        highlight_bg = theme.accent if theme else "#ffa62b"
+        accent = theme.accent if theme else ""
+        highlight_bg = accent if (accent and accent.startswith("#")) else "#ffa62b"
 
         # Track line offsets for accurate _scroll_to_match
         msg_line_offsets: dict[int, int] = {}

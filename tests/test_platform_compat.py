@@ -102,11 +102,10 @@ def test_datetime_fromisoformat():
 
 
 def test_strftime_day_no_padding():
-    """strftime 날짜 패딩 제거 테스트 (%-d는 Windows 미지원)"""
-    # kiro_history.py 방식: dt.day로 직접 접근
-    dt = datetime(2026, 1, 5)
-    result = f"{dt.day} {dt.strftime('%b %Y')}"
-    assert result == "5 Jan 2026", f"Unexpected format: {result}"
+    """날짜 포맷 테스트: yyyy-mm-dd hh:mm:ss"""
+    dt = datetime(2026, 1, 5, 20, 10, 0)
+    result = dt.strftime("%Y-%m-%d %H:%M:%S")
+    assert result == "2026-01-05 20:10:00", f"Unexpected format: {result}"
     print("[OK] test_strftime_day_no_padding")
 
 
