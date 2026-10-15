@@ -230,7 +230,7 @@ class KiroHistory(App):
     _HELP_ROWS = [
         ("Ctrl+R",   _L_RESUME),
         ("Ctrl+N",   "New session (current dir)"),
-        ("Alt+N",    _L_RESUME_DIR),
+        ("Alt+R",    _L_RESUME_DIR),
         ("Ctrl+Y",   "Copy conversation"),
         ("Ctrl+X",   "Export session to .json.gz"),
         ("Ctrl+Del", "Delete session"),
@@ -256,7 +256,7 @@ class KiroHistory(App):
     BINDINGS = [
         Binding("ctrl+r", "resume", _L_RESUME),
         Binding("ctrl+n", "new_session", _L_NEW),
-        Binding("alt+n", "new_session_history", f"Alt+N {_L_RESUME_DIR}"),
+        Binding("alt+r", "new_session_history", f"Alt+R {_L_RESUME_DIR}"),
         Binding("ctrl+y", "copy_conversation", "Copy", show=False),
         Binding("ctrl+x", "export_session", "Export", show=False),
         Binding("ctrl+delete", "delete_session", "Delete", show=False),
@@ -1204,7 +1204,7 @@ class KiroHistory(App):
             return f"[bold yellow]{key}[/bold yellow]"
         return (
             f" {k('^Y')} Copy  {k('^X')} Export  {k('^Del')} Delete  "
-            f"{k('^R')} {cls._L_RESUME}  {k('^N')} {cls._L_NEW}  {k('⌥ N')} {cls._L_RESUME_DIR}  "
+            f"{k('^R')} {cls._L_RESUME}  {k('^N')} {cls._L_NEW}  {k('⌥ R')} {cls._L_RESUME_DIR}  "
             f"{k('m')} Page↓  {k('M')} Page↑  "
             f"{k('/')} Search  {k('p')} Path  "
             f"{k('?')} Help  {k('F2')} Rename  "
@@ -1371,9 +1371,9 @@ class KiroHistory(App):
         self.exit(result=("new", {"cwd": os.getcwd()}, self._trust_all_tools))
 
     def action_new_session_history(self) -> None:
-        """Resume the selected session in a new/different directory (Alt+N)."""
+        """Resume the selected session in a new/different directory (Alt+R)."""
         if not self.selected_session:
-            self.notify("Select a session first, then press Alt+N.", severity="warning", timeout=4)
+            self.notify("Select a session first, then press Alt+R.", severity="warning", timeout=4)
             return
         session_id = self.selected_session.get("session_id", "")
         if not session_id:

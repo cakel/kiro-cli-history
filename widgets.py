@@ -406,7 +406,7 @@ class KeysHelpScreen(ModalScreen):
     SHORTCUT_ROWS = [
         ("Ctrl+R",       "Resume+ChangeDir"),
         ("Ctrl+N",       "New session (current dir)"),
-        ("Alt+N",        "Resume+SelectDir"),
+        ("Alt+R",        "Resume+SelectDir"),
         ("Ctrl+Y",       "Copy conversation"),
         ("Ctrl+X",       "Export session to .json.gz"),
         ("Ctrl+Del",     "Delete session"),
