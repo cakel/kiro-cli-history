@@ -11,10 +11,9 @@ permissions:
 
 jobs:
   ai-review:
-    uses: cakel/llm-pr-reviewer/.github/workflows/reusable-ai-review.yml@0cb48b93bc0084553a71a05d9997af334eacd25c  # v1.2.1 (액션까지 SHA 고정)
+    uses: cakel/llm-pr-reviewer/.github/workflows/reusable-ai-review.yml@86406954488dc77bbf657cc639ba5bab86f366cf  # v1.3.0 (액션까지 SHA 고정)
     with:
       runner: '["ubuntu-latest"]'
       review-runner: '["self-hosted", "review"]'
-      max-diff-bytes: '500000'   # 기본 200000 — 넘으면 리뷰 중지 안내(skipped_oversize, 승인 아님)
     secrets:
       token: ${{ secrets.GITHUB_TOKEN }}
