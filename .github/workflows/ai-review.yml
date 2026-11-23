@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   ai-review:
-    uses: cakel/llm-pr-reviewer/.github/workflows/reusable-ai-review.yml@6b404463c3225f9ae79dc6d037c18e91f07e07ad  # v1.3.1 (액션까지 SHA 고정)
+    uses: cakel/llm-pr-reviewer/.github/workflows/reusable-ai-review.yml@91a31cd8e7e81d063cafc173b094422e986d5313  # v1.3.2 (액션까지 SHA 고정)
     with:
       runner: '["ubuntu-latest"]'
       review-runner: '["self-hosted", "review"]'
